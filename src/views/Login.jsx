@@ -67,7 +67,7 @@ const Login = ({ onLogin }) => {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 2, duration: 1, ease: [0.16, 1, 0.3, 1] }}
           >
-            <img src="/clean logo without background .png" alt="CleanMax Logo" className="enterprise-brand-logo" style={{ maxWidth: '400px', height: 'auto', marginTop: '-120px', marginBottom: '40px' }} />
+            <img src={`${import.meta.env.BASE_URL}clean logo without background .png`} alt="CleanMax Logo" className="enterprise-brand-logo" style={{ maxWidth: '400px', height: 'auto', marginTop: '-120px', marginBottom: '40px' }} />
           </motion.div>
 
           <motion.div 

@@ -79,7 +79,7 @@ const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
         zIndex: 0
       }}>
         <img 
-          src="/dashboard-hero-bg.png" 
+          src={`${import.meta.env.BASE_URL}dashboard-hero-bg.png`} 
           alt="CleanMax Dashboard Banner"
           style={{
             width: '100%',

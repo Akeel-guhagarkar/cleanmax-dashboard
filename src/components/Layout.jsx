@@ -121,12 +121,10 @@ const Sidebar = ({ currentTab, setCurrentTab, isCollapsed, userRole, isMobile, i
       <div style={{ padding: '2rem 1.5rem', display: 'flex', alignItems: 'center', gap: '1rem' }}>
         <div style={{ 
           width: 40, height: 40, 
-          background: 'var(--accent-gradient)', 
-          borderRadius: '12px', 
           display: 'flex', alignItems: 'center', justifyContent: 'center', 
-          color: '#fff', fontWeight: 800, fontSize: '1.25rem',
-          boxShadow: 'var(--shadow-glow)'
-        }}>P</div>
+        }}>
+          <img src={`${import.meta.env.BASE_URL}cleanmax logo (1).png`} alt="CleanMax" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+        </div>
         {!isCollapsed && (
           <div className="animate-stagger delay-1" style={{ fontSize: '1.5rem', fontWeight: 800, letterSpacing: '-0.05em' }}>
             ProCure<span className="text-gradient">360</span>

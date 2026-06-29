@@ -92,7 +92,7 @@ const IndiaMap = ({ selectedRegion, onRegionClick, hoveredState, setHoveredState
   const geoJsonRef = useRef(null);
 
   useEffect(() => {
-    fetch('/india.json')
+    fetch(`${import.meta.env.BASE_URL}india.json`)
       .then(res => res.json())
       .then(data => setGeoData(data));
   }, []);
