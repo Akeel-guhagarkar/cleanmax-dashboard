@@ -551,14 +551,6 @@ const VendorPortfolioModal = ({ vendorName, onClose }) => {
 
           <div style={{ marginTop: '3rem' }}>
             <h3 style={{ fontSize: '1.25rem', marginBottom: '1rem', color: '#111827', fontWeight: 600 }}>Active Plants & Contracts</h3>
-            <div className="table-container">
-              <table className="premium-table" style={{ background: 'transparent' }}>
-                <thead>
-                  <tr>
-                    <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Plant & References</th>
-                    <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Location</th>
-                    <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Capacity</th>
-                    <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Rate</th>
                     <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Contract Period</th>
                     <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Status</th>
                   </tr>
