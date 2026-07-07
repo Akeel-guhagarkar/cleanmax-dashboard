@@ -202,6 +202,8 @@ h4, h5, h6 {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   border: none;
+  text-align: left;
+  white-space: nowrap;
 }
 .premium-table tbody tr {
   background: var(--bg-card);
@@ -214,6 +216,8 @@ h4, h5, h6 {
   padding: 1.25rem 1.5rem;
   border-top: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
+  text-align: left;
+  white-space: nowrap;
 }
 .premium-table tbody tr td:first-child {
   border-left: 1px solid var(--border-color);
@@ -302,10 +306,17 @@ h4, h5, h6 {
     padding: 1.25rem !important;
   }
 
-  .premium-table {
-    display: block;
+  .table-container {
+    width: 100%;
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .premium-table {
     white-space: nowrap;
+    min-width: 600px;
   }
   
   .premium-table tbody tr td {
@@ -324,6 +335,19 @@ h4, h5, h6 {
   .mobile-flex-col {
     flex-direction: column !important;
     align-items: flex-start !important;
+  }
+
+  /* Utility to make fixed-width inputs fluid on mobile */
+  .mobile-responsive-width {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  
+  /* Utility for modals on mobile */
+  .mobile-modal {
+    width: 95% !important;
+    padding: 1.5rem !important;
+    margin: 1rem auto !important;
   }
 }
 
@@ -709,4 +733,46 @@ h4, h5, h6 {
   .enterprise-glass-card {
     padding: 2.5rem 1.5rem;
   }
+}
+
+/* Toast Notifications */
+.toast-container {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.toast {
+  background: var(--bg-card);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-float);
+  color: var(--text-primary);
+  padding: 1rem 1.5rem;
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  animation: fadeScaleUp 0.3s var(--ease-spring) forwards;
+}
+
+/* Hide Default Browser Password Reveal Icons */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+input[type="password"]::-webkit-contacts-auto-fill-button,
+input[type="password"]::-webkit-credentials-auto-fill-button {
+  visibility: hidden;
+  display: none !important;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
 }

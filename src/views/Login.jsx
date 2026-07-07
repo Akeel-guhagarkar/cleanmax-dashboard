@@ -1,14 +1,38 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Leaf, Mail, Lock, ArrowRight, Check } from 'lucide-react';
+import { Leaf, Mail, Lock, ArrowRight, Check, Eye, EyeOff } from 'lucide-react';
 import { useProcure } from '../context/ProcureContext';
 
 const Login = ({ onLogin }) => {
   const { state, dispatch, showToast } = useProcure();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [isPasswordFocused, setIsPasswordFocused] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [imagesLoaded, setImagesLoaded] = useState(false);
+
+  useEffect(() => {
+    const bgImage = new Image();
+    bgImage.src = `${import.meta.env.BASE_URL}login image .png`;
+
+    const logoImage = new Image();
+    logoImage.src = `${import.meta.env.BASE_URL}clean logo without background .png`;
+
+    let loadedCount = 0;
+    const onLoad = () => {
+      loadedCount++;
+      if (loadedCount === 2) {
+        setImagesLoaded(true);
+      }
+    };
+
+    bgImage.onload = onLoad;
+    bgImage.onerror = onLoad; // Ensure it still loads if one fails
+    logoImage.onload = onLoad;
+    logoImage.onerror = onLoad;
+  }, []);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -16,13 +40,20 @@ const Login = ({ onLogin }) => {
     
     setTimeout(() => {
       setIsLoading(false);
-      const user = state.users.find(u => u.email === email && u.password === password);
+      const normalizedEmail = email.trim().toLowerCase();
+      const matchingUsers = state.users.filter(u => u.email.trim().toLowerCase() === normalizedEmail);
       
-      if (user) {
-        dispatch({ type: 'LOGIN', payload: user });
-        onLogin(user);
+      if (matchingUsers.length > 0) {
+        const userWithPassword = matchingUsers.find(u => String(u.password).trim() === String(password).trim());
+        
+        if (userWithPassword) {
+          dispatch({ type: 'LOGIN', payload: userWithPassword });
+          onLogin(userWithPassword);
+        } else {
+          showToast('incorrect password', 'error');
+        }
       } else {
-        showToast('Invalid email or password', 'error');
+        showToast('User not found', 'error');
       }
     }, 1500);
   };
@@ -32,6 +63,11 @@ const Login = ({ onLogin }) => {
   // Stage 3: Logo Fade & Slide (delay 2s, duration 1s)
   // Stage 4: Titles Fade & Blur Remove (delay 2.8s)
   // Stage 5: Form Card Reveal (delay 4s)
+
+  if (!imagesLoaded) {
+    // Show a blank dark screen while images load, so the animation starts seamlessly
+    return <div className="enterprise-login-wrapper" style={{ backgroundColor: '#000' }}></div>;
+  }
 
   return (
     <div className="enterprise-login-wrapper">
@@ -122,13 +158,42 @@ const Login = ({ onLogin }) => {
                 <div className="input-wrapper">
                   <Lock size={18} className="input-icon" />
                   <input 
-                    type="password" 
+                    type={showPassword ? "text" : "password"} 
                     className="enterprise-input" 
                     placeholder="••••••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    onFocus={() => setIsPasswordFocused(true)}
+                    onBlur={() => setIsPasswordFocused(false)}
+                    style={{ paddingRight: '3rem' }}
                     required
                   />
+                  {(isPasswordFocused || password.length > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      onMouseDown={(e) => e.preventDefault()}
+                      style={{
+                        position: 'absolute',
+                        right: '1rem',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        color: 'rgba(255, 255, 255, 0.9)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '0.2rem',
+                        zIndex: 5,
+                        transition: 'color 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = '#10b981'}
+                      onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  )}
                 </div>
               </div>
 

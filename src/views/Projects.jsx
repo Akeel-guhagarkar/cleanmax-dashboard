@@ -187,7 +187,7 @@ const Projects = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', position: 'relative' }}>
-      <div className="animate-stagger" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="animate-stagger mobile-flex-col" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
         <div>
           <h1 style={{ fontSize: '2rem' }}>Projects Pipeline</h1>
           <p className="text-secondary" style={{ marginTop: '0.25rem' }}>Overview of all ongoing and upcoming projects.</p>
@@ -203,8 +203,8 @@ const Projects = () => {
       </div>
 
       <div className="animate-stagger delay-1" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ position: 'relative', width: '350px' }}>
+        <div className="mobile-flex-col" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+          <div className="mobile-responsive-width" style={{ position: 'relative', width: '350px' }}>
             <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
             <input 
               type="text" 
@@ -226,7 +226,7 @@ const Projects = () => {
           )}
         </div>
 
-        <div style={{ overflowX: 'auto' }}>
+        <div className="table-container">
           <table className="premium-table">
             <thead>
               <tr>

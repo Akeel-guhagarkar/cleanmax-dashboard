@@ -2,57 +2,52 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useProcure } from '../context/ProcureContext';
 import { MapContainer, TileLayer, GeoJSON, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
+import 'leaflet.markercluster/dist/MarkerCluster.css';
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
+import { STATE_TO_REGION, REGION_COLORS, REGION_CENTERS } from '../utils/constants';
+import { createContainerComponent, useLeafletContext } from '@react-leaflet/core';
+import 'leaflet.markercluster';
 
-const STATE_TO_REGION = {
-  // North
-  'Jammu and Kashmir': 'North', 'Himachal Pradesh': 'North', 'Punjab': 'North', 'Chandigarh': 'North',
-  'Uttaranchal': 'North', 'Haryana': 'North', 'Delhi': 'North', 'Uttar Pradesh': 'North',
-  
-  // West
-  'Rajasthan': 'West', 'Gujarat': 'West', 'Maharashtra': 'West', 'Goa': 'West', 'Dadra and Nagar Haveli': 'West', 'Daman and Diu': 'West',
-  
-  // Central
-  'Madhya Pradesh': 'Central', 'Chhattisgarh': 'Central',
-  
-  // East & North East
-  'Bihar': 'East', 'Jharkhand': 'East', 'Orissa': 'East', 'West Bengal': 'East', 'Sikkim': 'East',
-  'Assam': 'East', 'Arunachal Pradesh': 'East', 'Nagaland': 'East', 'Manipur': 'East', 'Mizoram': 'East',
-  'Tripura': 'East', 'Meghalaya': 'East',
-  
-  // South
-  'Andhra Pradesh': 'South', 'Karnataka': 'South', 'Kerala': 'South', 'Tamil Nadu': 'South',
-  'Puducherry': 'South', 'Andaman and Nicobar': 'South', 'Lakshadweep': 'South'
-};
+function useMarkerClusterGroup(props) {
+  const context = useLeafletContext();
+  const instanceRef = useRef();
 
-const REGION_COLORS = {
-  'North': 'var(--region-north)',
-  'West': 'var(--region-west)',
-  'Central': 'var(--region-central)',
-  'East': 'var(--region-east)',
-  'South': 'var(--region-south)',
-  'Unknown': '#cbd5e1'
-};
+  if (!instanceRef.current) {
+    const { children, ...options } = props;
+    const instance = new L.markerClusterGroup(options);
+    instanceRef.current = {
+      instance,
+      context: { ...context, layerContainer: instance },
+    };
+  }
 
-const REGION_CENTERS = {
-  'North': [77, 28.5],
-  'West': [72, 22.5],
-  'Central': [79, 23.5],
-  'East': [85, 24.5],
-  'South': [78, 14.5]
-};
+  const { instance } = instanceRef.current;
+
+  useEffect(() => {
+    const container = context.layerContainer ?? context.map;
+    container.addLayer(instance);
+    return () => {
+      container.removeLayer(instance);
+    };
+  }, [context.layerContainer, context.map, instance]);
+
+  return instanceRef;
+}
+
+const MarkerClusterGroup = createContainerComponent(useMarkerClusterGroup);
 
 const MapController = ({ selectedRegion, focusedVendor }) => {
   const map = useMap();
   useEffect(() => {
     if (focusedVendor && focusedVendor.lat && focusedVendor.lng) {
-      map.flyTo([focusedVendor.lat, focusedVendor.lng], 10, {
+      map.flyTo([focusedVendor.lat, focusedVendor.lng], 12, {
         animate: true,
         duration: 1.8,
         easeLinearity: 0.2
       });
     } else if (selectedRegion && REGION_CENTERS[selectedRegion]) {
       const [lng, lat] = REGION_CENTERS[selectedRegion];
-      map.flyTo([lat, lng], 6.5, {
+      map.flyTo([lat, lng], 7.5, {
         animate: true,
         duration: 1.8,
         easeLinearity: 0.2
@@ -68,26 +63,100 @@ const MapController = ({ selectedRegion, focusedVendor }) => {
   return null;
 };
 
+const createClusterCustomIcon = function (cluster) {
+  return L.divIcon({
+    html: `<span style="
+             display: flex;
+             justify-content: center;
+             align-items: center;
+             width: 28px;
+             height: 28px;
+             background-color: var(--bg-card, #1a1a1a);
+             color: var(--text-primary, #ffffff);
+             border: 2px solid white;
+             border-radius: 50%;
+             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+             font-weight: bold;
+             font-size: 12px;
+             animation: pulse 2s infinite;
+           ">${cluster.getChildCount()}</span>`,
+    className: 'custom-marker-cluster',
+    iconSize: L.point(28, 28, true),
+  });
+};
+
 const createVendorIcon = (region) => {
   const color = REGION_COLORS[region] || '#fff';
   return L.divIcon({
     className: 'custom-vendor-icon',
     html: `<div style="
-             width: 14px; height: 14px;
+             width: 8px; height: 8px;
              background: ${color};
-             border: 2px solid white;
+             border: 1px solid white;
              border-radius: 50%;
-             box-shadow: 0 0 10px ${color}, 0 0 20px ${color};
+             box-shadow: 0 0 5px ${color}, 0 0 10px ${color};
              animation: pulse 2s infinite;
            ">
            </div>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
+    iconSize: [8, 8],
+    iconAnchor: [4, 4],
     popupAnchor: [0, -10]
   });
 };
 
-const IndiaMap = ({ selectedRegion, onRegionClick, hoveredState, setHoveredState, vendors, focusedVendor }) => {
+const MarkerWithPopup = ({ vendor, focusedVendor, setFocusedVendor }) => {
+  const markerRef = useRef(null);
+  const closingProgrammatically = useRef(false);
+  const isFocused = focusedVendor?.id === vendor.id;
+
+  useEffect(() => {
+    if (isFocused && markerRef.current) {
+      markerRef.current.openPopup();
+    } else if (!isFocused && markerRef.current) {
+      closingProgrammatically.current = true;
+      markerRef.current.closePopup();
+      closingProgrammatically.current = false;
+    }
+  }, [isFocused]);
+
+  return (
+    <Marker 
+      position={[vendor.lat, vendor.lng]}
+      icon={createVendorIcon(vendor.region)}
+      ref={markerRef}
+      eventHandlers={{
+        click: () => setFocusedVendor(vendor)
+      }}
+    >
+      <Popup 
+        className="premium-popup" 
+        closeButton={true} 
+        onClose={() => {
+          if (!closingProgrammatically.current && isFocused) {
+            setFocusedVendor(null);
+          }
+        }}
+      >
+        <div style={{ padding: '0.25rem', minWidth: '220px' }}>
+          <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: REGION_COLORS[vendor.region], fontWeight: 800, letterSpacing: '0.1em', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: REGION_COLORS[vendor.region], boxShadow: `0 0 8px ${REGION_COLORS[vendor.region]}` }} />
+            {vendor.region} Region {vendor.state ? `• ${vendor.state}` : ''}{vendor.city ? ` • ${vendor.city}` : ''}
+          </div>
+          <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: 'var(--text-primary)', lineHeight: 1.2 }}>{vendor.plantName}</h4>
+          <div style={{ background: 'var(--bg-app)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', marginBottom: '0.75rem' }}>
+            <p style={{ margin: '0 0 0.25rem 0', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Vendor: <strong style={{ color: 'var(--text-primary)' }}>{vendor.vendorName}</strong></p>
+            <p style={{ margin: '0', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Capacity: <strong style={{ color: 'var(--text-primary)' }}>{vendor.plantCapacity} {vendor.capacityUnit}</strong> at ₹{vendor.rate}/unit</p>
+          </div>
+          <span className={`status-pill ${vendor.status === 'Active' ? 'status-active' : vendor.status === 'Expiring Soon' ? 'status-warning' : 'status-danger'}`} style={{ width: '100%', justifyContent: 'center' }}>
+            {vendor.status}
+          </span>
+        </div>
+      </Popup>
+    </Marker>
+  );
+};
+
+export const IndiaMap = ({ selectedRegion, onRegionClick, hoveredState, setHoveredState, vendors, focusedVendor, setFocusedVendor }) => {
   const [geoData, setGeoData] = useState(null);
   const geoJsonRef = useRef(null);
 
@@ -190,33 +259,23 @@ const IndiaMap = ({ selectedRegion, onRegionClick, hoveredState, setHoveredState
           />
         )}
         
-        {vendors.map(vendor => {
-          if (selectedRegion !== vendor.region) return null;
-          return vendor.lat && vendor.lng && (
-            <Marker 
-              key={vendor.id} 
-              position={[vendor.lat, vendor.lng]}
-              icon={createVendorIcon(vendor.region)}
-            >
-              <Popup className="premium-popup" closeButton={false}>
-                <div style={{ padding: '0.25rem', minWidth: '220px' }}>
-                  <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: REGION_COLORS[vendor.region], fontWeight: 800, letterSpacing: '0.1em', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: REGION_COLORS[vendor.region], boxShadow: `0 0 8px ${REGION_COLORS[vendor.region]}` }} />
-                    {vendor.region} Region {vendor.state ? `• ${vendor.state}` : ''}
-                  </div>
-                  <h4 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: 'var(--text-primary)', lineHeight: 1.2 }}>{vendor.plantName}</h4>
-                  <div style={{ background: 'var(--bg-app)', padding: '0.75rem', borderRadius: 'var(--radius-sm)', marginBottom: '0.75rem' }}>
-                    <p style={{ margin: '0 0 0.25rem 0', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Vendor: <strong style={{ color: 'var(--text-primary)' }}>{vendor.vendorName}</strong></p>
-                    <p style={{ margin: '0', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Capacity: <strong style={{ color: 'var(--text-primary)' }}>{vendor.plantCapacity} {vendor.capacityUnit}</strong> at ₹{vendor.rate}/unit</p>
-                  </div>
-                  <span className={`status-pill ${vendor.status === 'Active' ? 'status-active' : vendor.status === 'Expiring Soon' ? 'status-warning' : 'status-danger'}`} style={{ width: '100%', justifyContent: 'center' }}>
-                    {vendor.status}
-                  </span>
-                </div>
-              </Popup>
-            </Marker>
-          );
-        })}
+        <MarkerClusterGroup
+          iconCreateFunction={createClusterCustomIcon}
+          showCoverageOnHover={false}
+          maxClusterRadius={50}
+        >
+          {vendors.map(vendor => {
+            if (selectedRegion && selectedRegion !== vendor.region) return null;
+            return vendor.lat && vendor.lng && (
+              <MarkerWithPopup 
+                key={vendor.id} 
+                vendor={vendor} 
+                focusedVendor={focusedVendor} 
+                setFocusedVendor={setFocusedVendor} 
+              />
+            );
+          })}
+        </MarkerClusterGroup>
       </MapContainer>
     </div>
   );
@@ -228,6 +287,7 @@ const RegionMap = () => {
   const [hoveredState, setHoveredState] = useState(null);
   const [statusFilter, setStatusFilter] = useState('All');
   const [focusedVendor, setFocusedVendor] = useState(null);
+  const [regionSearch, setRegionSearch] = useState('');
 
   const filteredVendors = useMemo(() => {
     return state.vendors.map((v, i) => {
@@ -267,29 +327,6 @@ const RegionMap = () => {
       <div className="animate-stagger delay-1" style={{ display: 'flex', flex: 1, gap: '2rem', minHeight: 0 }}>
         {/* Map Container */}
         <div className="glass-panel" style={{ flex: 2, display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', position: 'relative' }}>
-          
-          <div style={{ position: 'absolute', top: '20px', left: '60px', zIndex: 400, display: 'flex', gap: '0.5rem', background: 'var(--bg-card)', backdropFilter: 'blur(16px)', padding: '0.35rem', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-float)', border: '1px solid var(--border-color)' }}>
-            {['All', 'Active', 'Expiring Soon', 'Expired'].map(f => (
-              <button 
-                key={f}
-                onClick={(e) => { e.stopPropagation(); setStatusFilter(f); }}
-                style={{
-                  background: statusFilter === f ? 'var(--accent-gradient)' : 'transparent',
-                  color: statusFilter === f ? '#fff' : 'var(--text-secondary)',
-                  border: 'none',
-                  padding: '0.5rem 1rem',
-                  fontSize: '0.8rem',
-                  borderRadius: 'var(--radius-md)',
-                  fontWeight: 600,
-                  boxShadow: statusFilter === f ? '0 4px 15px var(--accent-glow)' : 'none',
-                  cursor: 'pointer',
-                  transition: 'all var(--transition-fast)'
-                }}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
 
           <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at center, rgba(255,255,255,0.2) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 400 }} />
           
@@ -300,11 +337,12 @@ const RegionMap = () => {
             setHoveredState={setHoveredState}
             vendors={filteredVendors}
             focusedVendor={focusedVendor}
+            setFocusedVendor={setFocusedVendor}
           />
         </div>
 
         {/* Legend / Details Drawer */}
-        <div className="glass-panel slide-in-drawer delay-2" style={{ width: '400px', display: 'flex', flexDirection: 'column', gap: '1.5rem', overflowY: 'auto', padding: '2rem' }}>
+        <div className="glass-panel slide-in-drawer delay-2 mobile-responsive-width" style={{ width: '400px', display: 'flex', flexDirection: 'column', gap: '1.5rem', overflowY: 'auto', padding: '2rem' }}>
           
           {focusedVendor ? (
             <div className="animate-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
@@ -316,7 +354,7 @@ const RegionMap = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, overflowY: 'auto', paddingRight: '0.5rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
                   <div style={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: REGION_COLORS[focusedVendor.region], boxShadow: `0 0 10px ${REGION_COLORS[focusedVendor.region]}` }} />
-                  <span style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: REGION_COLORS[focusedVendor.region], fontWeight: 800 }}>{focusedVendor.region} Region {focusedVendor.state ? `• ${focusedVendor.state}` : ''}</span>
+                  <span style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: REGION_COLORS[focusedVendor.region], fontWeight: 800 }}>{focusedVendor.region} Region {focusedVendor.state ? `• ${focusedVendor.state}` : ''}{focusedVendor.city ? ` • ${focusedVendor.city}` : ''}</span>
                 </div>
                 
                 <h2 style={{ fontSize: '2rem', color: 'var(--text-primary)', lineHeight: 1.1 }}>{focusedVendor.plantName}</h2>
@@ -372,7 +410,7 @@ const RegionMap = () => {
                   <div style={{ width: 16, height: 16, borderRadius: '4px', backgroundColor: REGION_COLORS[selectedRegion], boxShadow: `0 0 10px ${REGION_COLORS[selectedRegion]}` }} />
                   <h3 style={{ fontSize: '1.5rem' }}>{selectedRegion} Region</h3>
                 </div>
-                <button onClick={() => { setSelectedRegion(null); setFocusedVendor(null); }} className="btn-ghost" style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}>Close</button>
+                <button onClick={() => { setSelectedRegion(null); setFocusedVendor(null); setRegionSearch(''); }} className="btn-ghost" style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}>Close</button>
               </div>
               
               <div style={{ display: 'flex', gap: '1rem' }}>
@@ -387,9 +425,29 @@ const RegionMap = () => {
               </div>
 
               <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.5rem' }}>
-                <h4 style={{ marginBottom: '1rem', paddingBottom: '0.5rem', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Vendors in {selectedRegion}</h4>
+                <div style={{ marginBottom: '1rem', paddingBottom: '0.75rem', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <h4 style={{ color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>Vendors in {selectedRegion}</h4>
+                  <div className="input-wrapper">
+                    <svg className="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ left: '0.75rem' }}>
+                      <circle cx="11" cy="11" r="8"></circle>
+                      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    <input 
+                      type="text" 
+                      placeholder="Search by vendor, city, or state..." 
+                      className="premium-input" 
+                      style={{ paddingLeft: '2.25rem', paddingRight: '1rem', paddingTop: '0.5rem', paddingBottom: '0.5rem', fontSize: '0.85rem' }}
+                      value={regionSearch}
+                      onChange={(e) => setRegionSearch(e.target.value)}
+                    />
+                  </div>
+                </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {regionStats[selectedRegion].vendors.map((v, i) => (
+                  {regionStats[selectedRegion].vendors.filter(v => 
+                    v.vendorName.toLowerCase().includes(regionSearch.toLowerCase()) || 
+                    (v.city && v.city.toLowerCase().includes(regionSearch.toLowerCase())) || 
+                    (v.state && v.state.toLowerCase().includes(regionSearch.toLowerCase()))
+                  ).map((v, i) => (
                     <div 
                       key={v.id} 
                       onClick={() => setFocusedVendor(v)}
@@ -418,6 +476,12 @@ const RegionMap = () => {
                             <>
                               <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'currentColor' }}></span>
                               <span>{v.state}</span>
+                            </>
+                          )}
+                          {v.city && (
+                            <>
+                              <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'currentColor' }}></span>
+                              <span>{v.city}</span>
                             </>
                           )}
                         </div>

@@ -44,8 +44,8 @@ const EmployeeRegistrationForm = ({ onClose }) => {
       return;
     }
 
-    const email = formData.email || `${formData.name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@cleanmax.energy`;
-    const password = formData.password || generatePassword();
+    const email = (formData.email || `${formData.name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@cleanmax.energy`).trim().toLowerCase();
+    const password = (formData.password || generatePassword()).trim();
     
     const newUser = {
       id: uuidv4(),
@@ -204,7 +204,7 @@ const Employees = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', position: 'relative' }}>
-      <div className="animate-stagger" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="animate-stagger mobile-flex-col" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
         <div>
           <h1 style={{ fontSize: '2rem' }}>User Management</h1>
           <p className="text-secondary" style={{ marginTop: '0.25rem' }}>Manage users, roles, and access credentials.</p>
@@ -215,8 +215,8 @@ const Employees = () => {
       </div>
 
       <div className="animate-stagger delay-1" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ position: 'relative', width: '350px' }}>
+        <div className="mobile-flex-col" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+          <div className="mobile-responsive-width" style={{ position: 'relative', width: '350px' }}>
             <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
             <input 
               type="text" 
@@ -238,7 +238,7 @@ const Employees = () => {
           )}
         </div>
 
-        <div style={{ overflowX: 'auto' }}>
+        <div className="table-container">
           <table className="premium-table">
             <thead>
               <tr>

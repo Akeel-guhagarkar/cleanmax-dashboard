@@ -14,6 +14,7 @@ const getInitialState = () => {
     lastSynced: null,
     isDarkMode: false,
     toasts: [],
+    notifications: [],
   };
 };
 
@@ -28,6 +29,7 @@ const vendorReducer = (state, action) => {
         users: action.payload.users,
         projects: action.payload.projects,
         currentUser: action.payload.currentUser,
+        notifications: action.payload.notifications || [],
         lastSynced: new Date().toISOString(),
       };
     case 'LOGIN':
@@ -114,6 +116,29 @@ const vendorReducer = (state, action) => {
         ...state,
         isDarkMode: !state.isDarkMode,
       };
+    case 'ADD_NOTIFICATION':
+      return {
+        ...state,
+        notifications: [{ id: uuidv4(), timestamp: new Date().toISOString(), readBy: [], ...action.payload }, ...state.notifications],
+      };
+    case 'MARK_NOTIFICATION_READ':
+      return {
+        ...state,
+        notifications: state.notifications.map(n => 
+          n.id === action.payload.notificationId 
+            ? { ...n, readBy: [...new Set([...(n.readBy || []), action.payload.userId])] } 
+            : n
+        ),
+      };
+    case 'MARK_ALL_NOTIFICATIONS_READ':
+      return {
+        ...state,
+        notifications: state.notifications.map(n => 
+          n.targetRoles.includes(action.payload.role)
+            ? { ...n, readBy: [...new Set([...(n.readBy || []), action.payload.userId])] }
+            : n
+        ),
+      };
     case 'ADD_TOAST':
       return {
         ...state,
@@ -134,7 +159,7 @@ export const ProcureProvider = ({ children }) => {
 
   // Initialize data from localStorage or seed
   useEffect(() => {
-    const savedData = localStorage.getItem('procure360_vendors_v2');
+    const savedData = localStorage.getItem('procure360_vendors_v10');
     const savedUsers = localStorage.getItem('procure360_users');
     const savedCurrentUser = localStorage.getItem('procure360_current_user');
     const savedDarkMode = localStorage.getItem('procure360_darkmode');
@@ -163,12 +188,24 @@ export const ProcureProvider = ({ children }) => {
     let initialCurrentUser = savedCurrentUser ? JSON.parse(savedCurrentUser) : null;
     let initialProjects = SEED_PROJECTS;
 
-    const savedProjects = localStorage.getItem('procure360_projects');
+    const savedProjects = localStorage.getItem('procure360_projects_v5');
     if (savedProjects) {
       initialProjects = JSON.parse(savedProjects);
     }
 
-    dispatch({ type: 'INIT_DATA', payload: { vendors: initialVendors, users: initialUsers, projects: initialProjects, currentUser: initialCurrentUser } });
+    const savedNotifications = localStorage.getItem('procure360_notifications');
+    let initialNotifications = [];
+    if (savedNotifications) {
+      initialNotifications = JSON.parse(savedNotifications);
+    } else {
+      initialNotifications = [
+        { id: uuidv4(), type: 'warning', message: 'Vendor "SunPower Innovations" contract is expiring in 15 days.', targetRoles: ['admin', 'user'], timestamp: new Date(Date.now() - 3600000).toISOString(), readBy: [] },
+        { id: uuidv4(), type: 'alert', message: 'New viewer role was successfully provisioned.', targetRoles: ['admin'], timestamp: new Date(Date.now() - 86400000).toISOString(), readBy: [] },
+        { id: uuidv4(), type: 'success', message: 'Project "Desert Alpha" has successfully completed its planning phase.', targetRoles: ['admin', 'user', 'viewer'], timestamp: new Date(Date.now() - 172800000).toISOString(), readBy: [] },
+      ];
+    }
+
+    dispatch({ type: 'INIT_DATA', payload: { vendors: initialVendors, users: initialUsers, projects: initialProjects, currentUser: initialCurrentUser, notifications: initialNotifications } });
 
     if (savedDarkMode === 'true') {
       dispatch({ type: 'TOGGLE_DARK_MODE' });
@@ -177,10 +214,10 @@ export const ProcureProvider = ({ children }) => {
 
   // Persist data to localStorage on change
   useEffect(() => {
-    if (state.vendors.length > 0) {
-      localStorage.setItem('procure360_vendors_v2', JSON.stringify(state.vendors));
+    if (state.lastSynced && state.vendors) {
+      localStorage.setItem('procure360_vendors_v9', JSON.stringify(state.vendors));
     }
-  }, [state.vendors]);
+  }, [state.vendors, state.lastSynced]);
 
   useEffect(() => {
     if (state.users.length > 0) {
@@ -197,10 +234,10 @@ export const ProcureProvider = ({ children }) => {
   }, [state.currentUser]);
 
   useEffect(() => {
-    if (state.projects && state.projects.length > 0) {
-      localStorage.setItem('procure360_projects', JSON.stringify(state.projects));
+    if (state.lastSynced && state.projects) {
+      localStorage.setItem('procure360_projects_v5', JSON.stringify(state.projects));
     }
-  }, [state.projects]);
+  }, [state.projects, state.lastSynced]);
 
   useEffect(() => {
     localStorage.setItem('procure360_darkmode', state.isDarkMode);
@@ -210,6 +247,12 @@ export const ProcureProvider = ({ children }) => {
       document.documentElement.classList.remove('dark');
     }
   }, [state.isDarkMode]);
+
+  useEffect(() => {
+    if (state.notifications && state.notifications.length > 0) {
+      localStorage.setItem('procure360_notifications', JSON.stringify(state.notifications));
+    }
+  }, [state.notifications]);
 
   const showToast = (message, type = 'success') => {
     const toastPayload = { message, type };

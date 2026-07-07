@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList,
-  AreaChart, Area, ScatterChart, Scatter, ZAxis
+  AreaChart, Area, ScatterChart, Scatter, ZAxis, ComposedChart, Line, LineChart
 } from 'recharts';
 
 // Updated Vibrant Premium Color Palette
@@ -15,13 +15,18 @@ const containerVariants = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
-    transition: { staggerChildren: 0.15 }
+    transition: { staggerChildren: 0.3, delayChildren: 0.1 }
   }
 };
 
 const itemVariants = {
-  hidden: { opacity: 0, scale: 0.95, y: 30 },
-  show: { opacity: 1, scale: 1, y: 0, transition: { type: 'spring', stiffness: 200, damping: 20 } }
+  hidden: { opacity: 0, y: 60, scale: 0.9 },
+  show: { 
+    opacity: 1, 
+    y: 0, 
+    scale: 1,
+    transition: { duration: 0.8, ease: "easeOut" } 
+  }
 };
 
 // Premium Custom Tooltip
@@ -301,34 +306,31 @@ const Analytics = () => {
                 <h3 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>Rate Trends Over Time (₹/unit)</h3>
                 <div style={{ height: 450 }}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={rateTrendData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-                      <ChartDefs />
+                    <LineChart data={rateTrendData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" opacity={0.5} />
-                      <XAxis dataKey="date" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} axisLine={false} tickLine={false} dy={10} />
+                      <XAxis dataKey="date" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} axisLine={{ stroke: 'var(--border-color)' }} tickLine={false} dy={10} />
                       <YAxis stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} axisLine={false} tickLine={false} dx={-10} domain={['dataMin - 0.5', 'dataMax + 0.5']} />
                       <Tooltip content={<CustomTooltip />} />
-                      <Area type="monotone" dataKey="rate" stroke="#00C49F" strokeWidth={4} fill="url(#colorGreen)" animationDuration={1500} activeDot={{ r: 8, fill: '#00C49F', stroke: '#fff', strokeWidth: 3 }} />
-                    </AreaChart>
+                      <Line type="linear" dataKey="rate" name="Rate (₹/unit)" stroke="#0088FE" strokeWidth={3} dot={{ r: 5, fill: '#0088FE', stroke: 'var(--bg-card)', strokeWidth: 2 }} activeDot={{ r: 7 }} animationDuration={1500} />
+                    </LineChart>
                   </ResponsiveContainer>
                 </div>
               </motion.div>
 
               <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '2rem', gridColumn: '1 / -1' }}>
-                <h3 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>Rate vs Capacity Correlation</h3>
+                <h3 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>Rate & Capacity by Vendor</h3>
                 <div style={{ height: 450 }}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <ScatterChart margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" opacity={0.5} />
-                      <XAxis type="number" dataKey="capacity" name="Capacity" unit=" kWp" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} axisLine={false} tickLine={false} dy={10} />
-                      <YAxis type="number" dataKey="rate" name="Rate" unit=" ₹" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} axisLine={false} tickLine={false} dx={-10} domain={['dataMin - 0.5', 'dataMax + 0.5']} />
-                      <ZAxis type="number" range={[100, 500]} />
-                      <Tooltip cursor={{ strokeDasharray: '3 3', stroke: 'var(--border-color)' }} content={<CustomTooltip />} />
-                      <Scatter name="Vendors" data={rateCapacityData} fill="#FFBB28" animationDuration={1500}>
-                        {rateCapacityData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill="#FFBB28" />
-                        ))}
-                      </Scatter>
-                    </ScatterChart>
+                    <ComposedChart data={rateCapacityData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" opacity={0.5} />
+                      <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} axisLine={false} tickLine={false} dy={10} />
+                      <YAxis yAxisId="left" stroke="#0088FE" tick={{fill: '#0088FE', fontWeight: 500}} axisLine={false} tickLine={false} dx={-10} />
+                      <YAxis yAxisId="right" orientation="right" stroke="#A28CFE" tick={{fill: '#A28CFE', fontWeight: 500}} axisLine={false} tickLine={false} dx={10} />
+                      <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }} />
+                      <Legend verticalAlign="top" height={36} wrapperStyle={{ fontWeight: 600 }} />
+                      <Bar yAxisId="left" dataKey="capacity" name="Capacity (kWp)" fill="#0088FE" radius={[6, 6, 0, 0]} barSize={40} animationDuration={1500} />
+                      <Line yAxisId="right" type="monotone" dataKey="rate" name="Rate (₹/unit)" stroke="#A28CFE" strokeWidth={4} dot={{ r: 6, fill: '#A28CFE', stroke: 'var(--bg-card)', strokeWidth: 3 }} activeDot={{ r: 8 }} animationDuration={1500} />
+                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
               </motion.div>
