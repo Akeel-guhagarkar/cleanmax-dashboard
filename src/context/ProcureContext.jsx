@@ -1,18 +1,21 @@
 import React, { createContext, useReducer, useEffect, useContext } from 'react';
 import { SEED_VENDORS, SEED_USERS, SEED_PROJECTS, calculateStatus } from '../utils/seedData';
 import { v4 as uuidv4 } from 'uuid';
+import { db } from '../firebase';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 
 const ProcureContext = createContext();
 
 const getInitialState = () => {
   const savedCurrentUser = localStorage.getItem('procure360_current_user');
+  const savedDarkMode = localStorage.getItem('procure360_darkmode');
   return {
     vendors: [],
     users: [],
     projects: [],
     currentUser: savedCurrentUser ? JSON.parse(savedCurrentUser) : null,
     lastSynced: null,
-    isDarkMode: false,
+    isDarkMode: savedDarkMode === 'true',
     toasts: [],
     notifications: [],
   };
@@ -22,16 +25,19 @@ const initialState = getInitialState();
 
 const vendorReducer = (state, action) => {
   switch (action.type) {
-    case 'INIT_DATA':
+    case 'SYNC_FROM_FIREBASE': {
+      const newUsers = action.payload.users || [];
+      const updatedCurrentUser = state.currentUser ? newUsers.find(u => u.id === state.currentUser.id) || state.currentUser : null;
       return {
         ...state,
-        vendors: action.payload.vendors,
-        users: action.payload.users,
-        projects: action.payload.projects,
-        currentUser: action.payload.currentUser,
+        vendors: action.payload.vendors || [],
+        users: newUsers,
+        projects: action.payload.projects || [],
         notifications: action.payload.notifications || [],
-        lastSynced: new Date().toISOString(),
+        currentUser: updatedCurrentUser,
+        // don't touch lastSynced to avoid infinite loops
       };
+    }
     case 'LOGIN':
       return {
         ...state,
@@ -46,6 +52,7 @@ const vendorReducer = (state, action) => {
       return {
         ...state,
         users: [...state.users, action.payload],
+        lastSynced: new Date().toISOString(),
       };
     case 'UPDATE_USER': {
       const updatedUsers = state.users.map(u => u.id === action.payload.id ? { ...u, ...action.payload } : u);
@@ -54,27 +61,32 @@ const vendorReducer = (state, action) => {
         ...state,
         users: updatedUsers,
         currentUser: isCurrentUser ? { ...state.currentUser, ...action.payload } : state.currentUser,
+        lastSynced: new Date().toISOString(),
       };
     }
     case 'DELETE_USER':
       return {
         ...state,
         users: state.users.filter(u => u.id !== action.payload),
+        lastSynced: new Date().toISOString(),
       };
     case 'ADD_PROJECT':
       return {
         ...state,
         projects: [...state.projects, { ...action.payload, id: uuidv4(), createdAt: new Date().toISOString() }],
+        lastSynced: new Date().toISOString(),
       };
     case 'UPDATE_PROJECT':
       return {
         ...state,
         projects: state.projects.map(p => p.id === action.payload.id ? { ...p, ...action.payload } : p),
+        lastSynced: new Date().toISOString(),
       };
     case 'DELETE_PROJECTS':
       return {
         ...state,
         projects: state.projects.filter(p => !action.payload.includes(p.id)),
+        lastSynced: new Date().toISOString(),
       };
     case 'ADD_VENDOR':
       const newVendor = {
@@ -120,6 +132,7 @@ const vendorReducer = (state, action) => {
       return {
         ...state,
         notifications: [{ id: uuidv4(), timestamp: new Date().toISOString(), readBy: [], ...action.payload }, ...state.notifications],
+        lastSynced: new Date().toISOString(),
       };
     case 'MARK_NOTIFICATION_READ':
       return {
@@ -129,6 +142,7 @@ const vendorReducer = (state, action) => {
             ? { ...n, readBy: [...new Set([...(n.readBy || []), action.payload.userId])] } 
             : n
         ),
+        lastSynced: new Date().toISOString(),
       };
     case 'MARK_ALL_NOTIFICATIONS_READ':
       return {
@@ -138,6 +152,7 @@ const vendorReducer = (state, action) => {
             ? { ...n, readBy: [...new Set([...(n.readBy || []), action.payload.userId])] }
             : n
         ),
+        lastSynced: new Date().toISOString(),
       };
     case 'ADD_TOAST':
       return {
@@ -157,74 +172,55 @@ const vendorReducer = (state, action) => {
 export const ProcureProvider = ({ children }) => {
   const [state, dispatch] = useReducer(vendorReducer, initialState);
 
-  // Initialize data from localStorage or seed
+  // Initialize data from Firestore and listen to real-time changes
   useEffect(() => {
-    const savedData = localStorage.getItem('procure360_vendors_v12');
-    const savedUsers = localStorage.getItem('procure360_users');
-    const savedCurrentUser = localStorage.getItem('procure360_current_user');
-    const savedDarkMode = localStorage.getItem('procure360_darkmode');
-
-    let initialVendors = [];
-    if (savedData) {
-      initialVendors = JSON.parse(savedData);
-      initialVendors = initialVendors.map(v => ({
-        ...v,
-        status: calculateStatus(v.contractEnd)
-      }));
-    } else {
-      initialVendors = SEED_VENDORS;
-    }
-
-    let initialUsers = savedUsers ? JSON.parse(savedUsers) : SEED_USERS;
+    const stateDocRef = doc(db, 'appData', 'globalState');
     
-    // Ensure new seed users (like viewer) are added even if localStorage already has old users
-    const existingEmails = new Set(initialUsers.map(u => u.email));
-    SEED_USERS.forEach(seedUser => {
-      if (!existingEmails.has(seedUser.email)) {
-        initialUsers.push(seedUser);
+    const unsubscribe = onSnapshot(stateDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        // Only sync if the change came from the server (another device), 
+        // to avoid local state being overwritten mid-update.
+        if (!docSnap.metadata.hasPendingWrites) {
+          dispatch({ type: 'SYNC_FROM_FIREBASE', payload: docSnap.data() });
+        }
+      } else {
+        // First time initialization: upload seed data to Firestore
+        const initialVendors = SEED_VENDORS.map(v => ({ ...v, status: calculateStatus(v.contractEnd) }));
+        const initialNotifications = [
+          { id: uuidv4(), type: 'warning', message: 'Vendor "SunPower Innovations" contract is expiring in 15 days.', targetRoles: ['admin', 'user'], timestamp: new Date(Date.now() - 3600000).toISOString(), readBy: [] },
+          { id: uuidv4(), type: 'alert', message: 'New viewer role was successfully provisioned.', targetRoles: ['admin'], timestamp: new Date(Date.now() - 86400000).toISOString(), readBy: [] },
+          { id: uuidv4(), type: 'success', message: 'Project "Desert Alpha" has successfully completed its planning phase.', targetRoles: ['admin', 'user', 'viewer'], timestamp: new Date(Date.now() - 172800000).toISOString(), readBy: [] },
+        ];
+        
+        const initialData = {
+          vendors: initialVendors,
+          users: SEED_USERS,
+          projects: SEED_PROJECTS,
+          notifications: initialNotifications
+        };
+        
+        setDoc(stateDocRef, initialData);
+        dispatch({ type: 'SYNC_FROM_FIREBASE', payload: initialData });
       }
     });
 
-    let initialCurrentUser = savedCurrentUser ? JSON.parse(savedCurrentUser) : null;
-    let initialProjects = SEED_PROJECTS;
-
-    const savedProjects = localStorage.getItem('procure360_projects_v7');
-    if (savedProjects) {
-      initialProjects = JSON.parse(savedProjects);
-    }
-
-    const savedNotifications = localStorage.getItem('procure360_notifications');
-    let initialNotifications = [];
-    if (savedNotifications) {
-      initialNotifications = JSON.parse(savedNotifications);
-    } else {
-      initialNotifications = [
-        { id: uuidv4(), type: 'warning', message: 'Vendor "SunPower Innovations" contract is expiring in 15 days.', targetRoles: ['admin', 'user'], timestamp: new Date(Date.now() - 3600000).toISOString(), readBy: [] },
-        { id: uuidv4(), type: 'alert', message: 'New viewer role was successfully provisioned.', targetRoles: ['admin'], timestamp: new Date(Date.now() - 86400000).toISOString(), readBy: [] },
-        { id: uuidv4(), type: 'success', message: 'Project "Desert Alpha" has successfully completed its planning phase.', targetRoles: ['admin', 'user', 'viewer'], timestamp: new Date(Date.now() - 172800000).toISOString(), readBy: [] },
-      ];
-    }
-
-    dispatch({ type: 'INIT_DATA', payload: { vendors: initialVendors, users: initialUsers, projects: initialProjects, currentUser: initialCurrentUser, notifications: initialNotifications } });
-
-    if (savedDarkMode === 'true') {
-      dispatch({ type: 'TOGGLE_DARK_MODE' });
-    }
+    return () => unsubscribe();
   }, []);
 
-  // Persist data to localStorage on change
+  // Persist data back to Firestore whenever local state changes
   useEffect(() => {
-    if (state.lastSynced && state.vendors) {
-      localStorage.setItem('procure360_vendors_v12', JSON.stringify(state.vendors));
+    if (state.lastSynced) {
+      const stateDocRef = doc(db, 'appData', 'globalState');
+      setDoc(stateDocRef, {
+        vendors: state.vendors,
+        users: state.users,
+        projects: state.projects,
+        notifications: state.notifications
+      }, { merge: true });
     }
-  }, [state.vendors, state.lastSynced]);
+  }, [state.lastSynced]);
 
-  useEffect(() => {
-    if (state.users.length > 0) {
-      localStorage.setItem('procure360_users', JSON.stringify(state.users));
-    }
-  }, [state.users]);
-
+  // Handle local UI settings (these don't sync across devices for the same user unless tied to user profile, so localStorage is fine for these)
   useEffect(() => {
     if (state.currentUser) {
       localStorage.setItem('procure360_current_user', JSON.stringify(state.currentUser));
@@ -234,12 +230,6 @@ export const ProcureProvider = ({ children }) => {
   }, [state.currentUser]);
 
   useEffect(() => {
-    if (state.lastSynced && state.projects) {
-      localStorage.setItem('procure360_projects_v7', JSON.stringify(state.projects));
-    }
-  }, [state.projects, state.lastSynced]);
-
-  useEffect(() => {
     localStorage.setItem('procure360_darkmode', state.isDarkMode);
     if (state.isDarkMode) {
       document.documentElement.classList.add('dark');
@@ -247,12 +237,6 @@ export const ProcureProvider = ({ children }) => {
       document.documentElement.classList.remove('dark');
     }
   }, [state.isDarkMode]);
-
-  useEffect(() => {
-    if (state.notifications && state.notifications.length > 0) {
-      localStorage.setItem('procure360_notifications', JSON.stringify(state.notifications));
-    }
-  }, [state.notifications]);
 
   const showToast = (message, type = 'success') => {
     const toastPayload = { message, type };
