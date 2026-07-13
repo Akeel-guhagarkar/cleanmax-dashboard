@@ -96,9 +96,22 @@ const ProfileModal = ({ user, onClose }) => {
   );
 };
 
-const NotificationDropdown = ({ notifications, onMarkRead, onMarkAllRead, onClose }) => {
+const NotificationDropdown = ({ notifications, onMarkRead, onMarkAllRead, onClose, isMobile }) => {
   return (
-    <div className="glass-panel animate-fade-in-up mobile-responsive-width" style={{ position: 'absolute', top: '100%', right: '0', width: '350px', maxHeight: '400px', overflowY: 'auto', zIndex: 100, marginTop: '0.5rem', display: 'flex', flexDirection: 'column' }}>
+    <div className="glass-panel animate-fade-in-up" style={{ 
+      position: isMobile ? 'fixed' : 'absolute', 
+      top: isMobile ? '65px' : '100%', 
+      right: isMobile ? '50%' : '0', 
+      transform: isMobile ? 'translateX(50%)' : 'none',
+      width: isMobile ? '90vw' : '350px', 
+      maxWidth: '350px',
+      maxHeight: '400px', 
+      overflowY: 'auto', 
+      zIndex: 100, 
+      marginTop: '0.5rem', 
+      display: 'flex', 
+      flexDirection: 'column' 
+    }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', borderBottom: '1px solid var(--border-color)', position: 'sticky', top: 0, background: 'var(--bg-card)', backdropFilter: 'blur(24px)', zIndex: 2 }}>
         <h3 style={{ fontSize: '1.1rem', margin: 0 }}>Notifications</h3>
         {notifications.some(n => n.isUnread) && (
@@ -393,6 +406,7 @@ export const Layout = ({ children, currentTab, setCurrentTab, onLogout, userRole
                   onMarkRead={(id) => dispatch({ type: 'MARK_NOTIFICATION_READ', payload: { notificationId: id, userId: state.currentUser?.id } })}
                   onMarkAllRead={() => dispatch({ type: 'MARK_ALL_NOTIFICATIONS_READ', payload: { role: userRole, userId: state.currentUser?.id } })}
                   onClose={() => setShowNotifications(false)}
+                  isMobile={isMobile}
                 />
               )}
             </div>
