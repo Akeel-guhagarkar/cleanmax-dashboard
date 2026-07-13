@@ -31,7 +31,7 @@ const ComparisonModal = ({ selectedVendors, onClose }) => {
         </div>
         
         <div className="table-container">
-          <table>
+          <table className="premium-table" style={{ background: 'transparent' }}>
             <thead>
               <tr>
                 <th style={{ width: '20%' }}>Property</th>
@@ -449,7 +449,7 @@ const VendorPortfolioModal = ({ vendorName, onClose }) => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '2rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '2rem' }}>
              {/* Map Section */}
              <div>
                <h3 style={{ fontSize: '1.25rem', marginBottom: '1rem', color: '#111827', fontWeight: 600 }}>Regional Presence</h3>
@@ -551,6 +551,14 @@ const VendorPortfolioModal = ({ vendorName, onClose }) => {
 
           <div style={{ marginTop: '3rem' }}>
             <h3 style={{ fontSize: '1.25rem', marginBottom: '1rem', color: '#111827', fontWeight: 600 }}>Active Plants & Contracts</h3>
+            <div className="table-container">
+              <table className="premium-table" style={{ background: 'transparent' }}>
+                <thead>
+                  <tr>
+                    <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Plant & References</th>
+                    <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Location</th>
+                    <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Capacity</th>
+                    <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Rate</th>
                     <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Contract Period</th>
                     <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Status</th>
                   </tr>
@@ -684,22 +692,22 @@ const Vendors = ({ initialFilter = '' }) => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', position: 'relative' }}>
-      <div className="animate-stagger" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="animate-stagger mobile-flex-col" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', width: '100%' }}>
         <div>
           <h1 style={{ fontSize: '2rem' }}>Vendor Registry</h1>
           <p className="text-secondary" style={{ marginTop: '0.25rem' }}>Manage and oversee all vendor contracts.</p>
         </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <button onClick={handleExportCSV} className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '1rem', width: '100%', overflowX: 'auto' }}>
+          <button onClick={handleExportCSV} className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, justifyContent: 'center' }}>
             <Download size={18} /> Export CSV
           </button>
-          <button onClick={() => setShowDrawer(true)} className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <button onClick={() => setShowDrawer(true)} className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, justifyContent: 'center' }}>
             <Plus size={18} /> New Vendor
           </button>
         </div>
       </div>
 
-      <div className="animate-stagger delay-1" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      <div className="animate-stagger delay-1" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', width: '100%', minWidth: 0 }}>
         <div className="mobile-flex-col" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
           <div className="mobile-responsive-width" style={{ position: 'relative', width: '350px' }}>
             <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />

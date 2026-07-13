@@ -67,7 +67,7 @@ const ProjectRegistrationForm = ({ onClose }) => {
                 <input required type="text" name="projectName" className="premium-input project-modal-input" value={formData.projectName} onChange={handleChange} />
               </div>
               <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Client *</label>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Vendor Name *</label>
                 <input required type="text" name="client" className="premium-input project-modal-input" value={formData.client} onChange={handleChange} />
               </div>
             </div>
@@ -187,22 +187,22 @@ const Projects = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', position: 'relative' }}>
-      <div className="animate-stagger mobile-flex-col" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+      <div className="animate-stagger mobile-flex-col" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', width: '100%' }}>
         <div>
           <h1 style={{ fontSize: '2rem' }}>Projects Pipeline</h1>
           <p className="text-secondary" style={{ marginTop: '0.25rem' }}>Overview of all ongoing and upcoming projects.</p>
         </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <button className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '1rem', width: '100%', overflowX: 'auto' }}>
+          <button className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, justifyContent: 'center' }}>
             <Download size={18} /> Export
           </button>
-          <button onClick={() => setShowDrawer(true)} className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <button onClick={() => setShowDrawer(true)} className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, justifyContent: 'center' }}>
             <Plus size={18} /> New Project
           </button>
         </div>
       </div>
 
-      <div className="animate-stagger delay-1" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      <div className="animate-stagger delay-1" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', width: '100%', minWidth: 0 }}>
         <div className="mobile-flex-col" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
           <div className="mobile-responsive-width" style={{ position: 'relative', width: '350px' }}>
             <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
@@ -239,7 +239,7 @@ const Projects = () => {
                 </th>
                 <th>Project Code</th>
                 <th>Project Name</th>
-                <th>Client</th>
+                <th>Vendor Name</th>
                 <th>Type</th>
                 <th>Capacity</th>
                 <th>Budget</th>

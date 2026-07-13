@@ -321,12 +321,35 @@ const RegionMap = () => {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '1rem' }}>
       <div className="animate-stagger">
         <h1 style={{ fontSize: '2rem' }}>Geographic Distribution</h1>
-        <p className="text-secondary" style={{ marginTop: '0.25rem' }}>Interactive map of your vendor assets across India.</p>
+        <p className="text-secondary" style={{ marginTop: '0.25rem' }}>Interactive map of your project assets across India.</p>
       </div>
 
-      <div className="animate-stagger delay-1" style={{ display: 'flex', flex: 1, gap: '2rem', minHeight: 0 }}>
+      <div className="animate-stagger delay-1 mobile-flex-col" style={{ display: 'flex', flex: 1, gap: '2rem', minHeight: 0, width: '100%' }}>
         {/* Map Container */}
-        <div className="glass-panel" style={{ flex: 2, display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', position: 'relative' }}>
+        <div className="glass-panel mobile-map-container" style={{ flex: 2, display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', position: 'relative', width: '100%' }}>
+
+          <div style={{ position: 'absolute', top: '20px', left: '60px', zIndex: 400, display: 'flex', gap: '0.5rem', background: 'var(--bg-card)', backdropFilter: 'blur(16px)', padding: '0.35rem', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-float)', border: '1px solid var(--border-color)' }}>
+            {['All', 'Active', 'Expiring Soon', 'Expired'].map(f => (
+              <button 
+                key={f}
+                onClick={(e) => { e.stopPropagation(); setStatusFilter(f); }}
+                style={{
+                  background: statusFilter === f ? 'var(--accent-gradient)' : 'transparent',
+                  color: statusFilter === f ? '#fff' : 'var(--text-secondary)',
+                  border: 'none',
+                  padding: '0.5rem 1rem',
+                  fontSize: '0.8rem',
+                  borderRadius: 'var(--radius-md)',
+                  fontWeight: 600,
+                  boxShadow: statusFilter === f ? '0 4px 15px var(--accent-glow)' : 'none',
+                  cursor: 'pointer',
+                  transition: 'all var(--transition-fast)'
+                }}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
 
           <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at center, rgba(255,255,255,0.2) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 400 }} />
           
@@ -348,7 +371,7 @@ const RegionMap = () => {
             <div className="animate-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
               <button onClick={() => setFocusedVendor(null)} className="btn-ghost" style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.75rem', fontSize: '0.9rem' }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-                Back to {selectedRegion} Vendors
+                Back to {selectedRegion} Projects
               </button>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1, overflowY: 'auto', paddingRight: '0.5rem' }}>
@@ -382,7 +405,7 @@ const RegionMap = () => {
                     </div>
                     <div>
                       <div className="text-secondary" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>PO Number</div>
-                      <div style={{ fontSize: '0.9rem', fontWeight: 500, marginTop: '0.5rem', color: 'var(--text-primary)', wordBreak: 'break-all' }}>{focusedVendor.poNumber}</div>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 500, marginTop: '0.5rem', color: 'var(--text-primary)', wordBreak: 'break-all' }}>{focusedVendor.poNumber || 'N/A'}</div>
                     </div>
                   </div>
                 </div>
@@ -416,7 +439,7 @@ const RegionMap = () => {
               <div style={{ display: 'flex', gap: '1rem' }}>
                 <div style={{ flex: 1, padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
                   <div style={{ fontSize: '2rem', fontWeight: 'bold', color: REGION_COLORS[selectedRegion] }}>{regionStats[selectedRegion].vendors.length}</div>
-                  <div className="text-secondary" style={{ fontSize: '0.875rem', fontWeight: 600, marginTop: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Vendors</div>
+                  <div className="text-secondary" style={{ fontSize: '0.875rem', fontWeight: 600, marginTop: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Projects</div>
                 </div>
                 <div style={{ flex: 1, padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
                   <div style={{ fontSize: '2rem', fontWeight: 'bold', color: REGION_COLORS[selectedRegion] }}>{regionStats[selectedRegion].capacity.toFixed(1)}</div>
@@ -426,7 +449,7 @@ const RegionMap = () => {
 
               <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.5rem' }}>
                 <div style={{ marginBottom: '1rem', paddingBottom: '0.75rem', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <h4 style={{ color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>Vendors in {selectedRegion}</h4>
+                  <h4 style={{ color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>Projects in {selectedRegion}</h4>
                   <div className="input-wrapper">
                     <svg className="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ left: '0.75rem' }}>
                       <circle cx="11" cy="11" r="8"></circle>
@@ -434,7 +457,7 @@ const RegionMap = () => {
                     </svg>
                     <input 
                       type="text" 
-                      placeholder="Search by vendor, city, or state..." 
+                      placeholder="Search by project, vendor, city, or state..." 
                       className="premium-input" 
                       style={{ paddingLeft: '2.25rem', paddingRight: '1rem', paddingTop: '0.5rem', paddingBottom: '0.5rem', fontSize: '0.85rem' }}
                       value={regionSearch}
@@ -493,7 +516,7 @@ const RegionMap = () => {
                   ))}
                   {regionStats[selectedRegion].vendors.length === 0 && (
                     <div className="text-secondary" style={{ textAlign: 'center', padding: '2rem 0', background: 'rgba(0,0,0,0.02)', borderRadius: '8px' }}>
-                      No vendors found in this region.
+                      No projects found in this region.
                     </div>
                   )}
                 </div>
@@ -533,7 +556,7 @@ const RegionMap = () => {
                     <div style={{ display: 'flex', gap: '1.5rem', textAlign: 'right' }}>
                       <div>
                         <div style={{ fontSize: '1rem', fontWeight: 800 }}>{regionStats[region].vendors.length}</div>
-                        <div className="text-secondary" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Vendors</div>
+                        <div className="text-secondary" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Projects</div>
                       </div>
                       <div>
                         <div style={{ fontSize: '1rem', fontWeight: 800 }}>{regionStats[region].capacity.toFixed(0)}</div>

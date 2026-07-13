@@ -159,7 +159,7 @@ export const ProcureProvider = ({ children }) => {
 
   // Initialize data from localStorage or seed
   useEffect(() => {
-    const savedData = localStorage.getItem('procure360_vendors_v10');
+    const savedData = localStorage.getItem('procure360_vendors_v12');
     const savedUsers = localStorage.getItem('procure360_users');
     const savedCurrentUser = localStorage.getItem('procure360_current_user');
     const savedDarkMode = localStorage.getItem('procure360_darkmode');
@@ -188,7 +188,7 @@ export const ProcureProvider = ({ children }) => {
     let initialCurrentUser = savedCurrentUser ? JSON.parse(savedCurrentUser) : null;
     let initialProjects = SEED_PROJECTS;
 
-    const savedProjects = localStorage.getItem('procure360_projects_v5');
+    const savedProjects = localStorage.getItem('procure360_projects_v7');
     if (savedProjects) {
       initialProjects = JSON.parse(savedProjects);
     }
@@ -215,7 +215,7 @@ export const ProcureProvider = ({ children }) => {
   // Persist data to localStorage on change
   useEffect(() => {
     if (state.lastSynced && state.vendors) {
-      localStorage.setItem('procure360_vendors_v9', JSON.stringify(state.vendors));
+      localStorage.setItem('procure360_vendors_v12', JSON.stringify(state.vendors));
     }
   }, [state.vendors, state.lastSynced]);
 
@@ -235,7 +235,7 @@ export const ProcureProvider = ({ children }) => {
 
   useEffect(() => {
     if (state.lastSynced && state.projects) {
-      localStorage.setItem('procure360_projects_v5', JSON.stringify(state.projects));
+      localStorage.setItem('procure360_projects_v7', JSON.stringify(state.projects));
     }
   }, [state.projects, state.lastSynced]);
 

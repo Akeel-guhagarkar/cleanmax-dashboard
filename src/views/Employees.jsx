@@ -204,17 +204,17 @@ const Employees = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', position: 'relative' }}>
-      <div className="animate-stagger mobile-flex-col" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+      <div className="animate-stagger mobile-flex-col" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', width: '100%' }}>
         <div>
           <h1 style={{ fontSize: '2rem' }}>User Management</h1>
           <p className="text-secondary" style={{ marginTop: '0.25rem' }}>Manage users, roles, and access credentials.</p>
         </div>
-        <button onClick={() => setShowDrawer(true)} className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <button onClick={() => setShowDrawer(true)} className="btn-premium mobile-w-full" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', justifyContent: 'center' }}>
           <Plus size={18} /> Add User
         </button>
       </div>
 
-      <div className="animate-stagger delay-1" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      <div className="animate-stagger delay-1" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', width: '100%', minWidth: 0 }}>
         <div className="mobile-flex-col" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
           <div className="mobile-responsive-width" style={{ position: 'relative', width: '350px' }}>
             <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />

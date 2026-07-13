@@ -244,7 +244,7 @@ const Analytics = () => {
               initial="hidden"
               animate="show"
               exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.2 } }}
-              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))', gap: '2rem' }}
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}
             >
               <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '2rem' }}>
                 <h3 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>Vendors by Region</h3>
@@ -300,7 +300,7 @@ const Analytics = () => {
               initial="hidden"
               animate="show"
               exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.2 } }}
-              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))', gap: '2rem' }}
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}
             >
               <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '2rem', gridColumn: '1 / -1' }}>
                 <h3 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>Rate Trends Over Time (₹/unit)</h3>
@@ -344,7 +344,7 @@ const Analytics = () => {
               initial="hidden"
               animate="show"
               exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.2 } }}
-              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))', gap: '2rem' }}
+              style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}
             >
               <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '2rem' }}>
                 <h3 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>Capacity by Region (kWp)</h3>

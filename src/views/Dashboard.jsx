@@ -183,7 +183,7 @@ const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
       {/* True Seamless Integrated Banner Layer */}
-      <div style={{ 
+      <div className="hero-banner-container" style={{ 
         position: 'relative',
         width: '100%', 
         /* Pulls the content below it UP significantly onto the image */
@@ -264,7 +264,7 @@ const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem' }}>
         <KPICard title="Total Capacity" value={`${metrics.totalCapacity} kWp`} subtitle="+12% from last month" icon={Zap} isAccent={true} delay={1} />
         <KPICard title="Total Vendors" value={metrics.total} subtitle="3 new this week" icon={Building2} delay={2} />
         <KPICard title="Active Contracts" value={metrics.active} icon={FileText} delay={3} />

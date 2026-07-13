@@ -378,26 +378,24 @@ export const Layout = ({ children, currentTab, setCurrentTab, onLogout, userRole
             <button className="btn-ghost" onClick={() => dispatch({ type: 'TOGGLE_DARK_MODE' })}>
               {state.isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
             </button>
-            {!isMobile && (
-              <div className="notification-container" style={{ position: 'relative' }}>
-                <button className="btn-ghost" onClick={() => setShowNotifications(!showNotifications)} style={{ position: 'relative' }}>
-                  <Bell size={20} />
-                  {unreadCount > 0 && (
-                    <span style={{ position: 'absolute', top: '2px', right: '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#ef4444', color: '#fff', fontSize: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', border: '2px solid var(--bg-app)' }}>
-                      {unreadCount}
-                    </span>
-                  )}
-                </button>
-                {showNotifications && (
-                  <NotificationDropdown 
-                    notifications={userNotifications}
-                    onMarkRead={(id) => dispatch({ type: 'MARK_NOTIFICATION_READ', payload: { notificationId: id, userId: state.currentUser?.id } })}
-                    onMarkAllRead={() => dispatch({ type: 'MARK_ALL_NOTIFICATIONS_READ', payload: { role: userRole, userId: state.currentUser?.id } })}
-                    onClose={() => setShowNotifications(false)}
-                  />
+            <div className="notification-container" style={{ position: 'relative' }}>
+              <button className="btn-ghost" onClick={() => setShowNotifications(!showNotifications)} style={{ position: 'relative' }}>
+                <Bell size={20} />
+                {unreadCount > 0 && (
+                  <span style={{ position: 'absolute', top: '2px', right: '2px', width: '18px', height: '18px', borderRadius: '50%', background: '#ef4444', color: '#fff', fontSize: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', border: '2px solid var(--bg-app)' }}>
+                    {unreadCount}
+                  </span>
                 )}
-              </div>
-            )}
+              </button>
+              {showNotifications && (
+                <NotificationDropdown 
+                  notifications={userNotifications}
+                  onMarkRead={(id) => dispatch({ type: 'MARK_NOTIFICATION_READ', payload: { notificationId: id, userId: state.currentUser?.id } })}
+                  onMarkAllRead={() => dispatch({ type: 'MARK_ALL_NOTIFICATIONS_READ', payload: { role: userRole, userId: state.currentUser?.id } })}
+                  onClose={() => setShowNotifications(false)}
+                />
+              )}
+            </div>
             <button className="btn-ghost" onClick={onLogout} title="Log Out">
               <LogOut size={20} />
             </button>
@@ -411,8 +409,8 @@ export const Layout = ({ children, currentTab, setCurrentTab, onLogout, userRole
           </div>
         </header>
 
-        <main style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '1rem' : '1rem 3rem 3rem 3rem' }}>
-          <div style={{ maxWidth: '1600px', margin: '0 auto' }}>
+        <main style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: isMobile ? '1rem' : '1rem 3rem 3rem 3rem' }}>
+          <div style={{ maxWidth: '1600px', margin: '0 auto', minWidth: 0, width: '100%' }}>
             {children}
           </div>
         </main>
