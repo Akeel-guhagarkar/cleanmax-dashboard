@@ -27,7 +27,7 @@ const vendorReducer = (state, action) => {
   switch (action.type) {
     case 'SYNC_FROM_FIREBASE': {
       const newUsers = action.payload.users || [];
-      const updatedCurrentUser = state.currentUser ? newUsers.find(u => u.id === state.currentUser.id) || state.currentUser : null;
+      const updatedCurrentUser = state.currentUser ? newUsers.find(u => u.email === state.currentUser.email) || state.currentUser : null;
       return {
         ...state,
         vendors: action.payload.vendors || [],

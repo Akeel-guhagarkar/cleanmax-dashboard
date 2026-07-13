@@ -19,7 +19,7 @@ export const calculateStatus = (endDate) => {
 
 export const SEED_USERS = [
   {
-    id: uuidv4(),
+    id: 'user-admin-seed-1',
     name: 'System Admin',
     email: 'admin@cleanmax.energy',
     password: 'admin',
@@ -31,7 +31,7 @@ export const SEED_USERS = [
     createdAt: new Date().toISOString(),
   },
   {
-    id: uuidv4(),
+    id: 'user-viewer-seed-2',
     name: 'Viewer User',
     email: 'viewer@cleanmax.energy',
     password: 'viewer',
