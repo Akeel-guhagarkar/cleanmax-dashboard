@@ -176,33 +176,45 @@ export const ProcureProvider = ({ children }) => {
   useEffect(() => {
     const stateDocRef = doc(db, 'appData', 'globalState');
     
-    const unsubscribe = onSnapshot(stateDocRef, (docSnap) => {
-      if (docSnap.exists()) {
-        // Only sync if the change came from the server (another device), 
-        // to avoid local state being overwritten mid-update.
-        if (!docSnap.metadata.hasPendingWrites) {
-          dispatch({ type: 'SYNC_FROM_FIREBASE', payload: docSnap.data() });
+    const fallbackToSeedData = () => {
+      const initialVendors = SEED_VENDORS.map(v => ({ ...v, status: calculateStatus(v.contractEnd) }));
+      const initialNotifications = [
+        { id: uuidv4(), type: 'warning', message: 'Vendor "SunPower Innovations" contract is expiring in 15 days.', targetRoles: ['admin', 'user'], timestamp: new Date(Date.now() - 3600000).toISOString(), readBy: [] },
+        { id: uuidv4(), type: 'alert', message: 'New viewer role was successfully provisioned.', targetRoles: ['admin'], timestamp: new Date(Date.now() - 86400000).toISOString(), readBy: [] },
+        { id: uuidv4(), type: 'success', message: 'Project "Desert Alpha" has successfully completed its planning phase.', targetRoles: ['admin', 'user', 'viewer'], timestamp: new Date(Date.now() - 172800000).toISOString(), readBy: [] },
+      ];
+      
+      const initialData = {
+        vendors: initialVendors,
+        users: SEED_USERS,
+        projects: SEED_PROJECTS,
+        notifications: initialNotifications
+      };
+      
+      dispatch({ type: 'SYNC_FROM_FIREBASE', payload: initialData });
+      return initialData;
+    };
+
+    const unsubscribe = onSnapshot(
+      stateDocRef, 
+      (docSnap) => {
+        if (docSnap.exists()) {
+          // Only sync if the change came from the server (another device), 
+          // to avoid local state being overwritten mid-update.
+          if (!docSnap.metadata.hasPendingWrites) {
+            dispatch({ type: 'SYNC_FROM_FIREBASE', payload: docSnap.data() });
+          }
+        } else {
+          // First time initialization: upload seed data to Firestore
+          const initialData = fallbackToSeedData();
+          setDoc(stateDocRef, initialData).catch(err => console.error("Failed to initialize Firebase data:", err));
         }
-      } else {
-        // First time initialization: upload seed data to Firestore
-        const initialVendors = SEED_VENDORS.map(v => ({ ...v, status: calculateStatus(v.contractEnd) }));
-        const initialNotifications = [
-          { id: uuidv4(), type: 'warning', message: 'Vendor "SunPower Innovations" contract is expiring in 15 days.', targetRoles: ['admin', 'user'], timestamp: new Date(Date.now() - 3600000).toISOString(), readBy: [] },
-          { id: uuidv4(), type: 'alert', message: 'New viewer role was successfully provisioned.', targetRoles: ['admin'], timestamp: new Date(Date.now() - 86400000).toISOString(), readBy: [] },
-          { id: uuidv4(), type: 'success', message: 'Project "Desert Alpha" has successfully completed its planning phase.', targetRoles: ['admin', 'user', 'viewer'], timestamp: new Date(Date.now() - 172800000).toISOString(), readBy: [] },
-        ];
-        
-        const initialData = {
-          vendors: initialVendors,
-          users: SEED_USERS,
-          projects: SEED_PROJECTS,
-          notifications: initialNotifications
-        };
-        
-        setDoc(stateDocRef, initialData);
-        dispatch({ type: 'SYNC_FROM_FIREBASE', payload: initialData });
+      },
+      (error) => {
+        console.error("Firebase Sync Error (Did you create the Firestore Database in the console?):", error);
+        fallbackToSeedData();
       }
-    });
+    );
 
     return () => unsubscribe();
   }, []);
