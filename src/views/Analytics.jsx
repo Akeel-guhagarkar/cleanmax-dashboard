@@ -353,7 +353,7 @@ const Analytics = () => {
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={rateCapacityData} margin={{ top: 20, right: 30, left: 0, bottom: 20 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" opacity={0.5} />
-                      <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} minTickGap={30} axisLine={false} tickLine={false} dy={10} />
+                      <XAxis dataKey="name" stroke="var(--text-secondary)" tick={false} minTickGap={30} axisLine={false} tickLine={false} dy={10} />
                       <YAxis yAxisId="left" stroke="#0088FE" tick={{fill: '#0088FE', fontWeight: 500}} axisLine={false} tickLine={false} dx={-10} />
                       <YAxis yAxisId="right" orientation="right" stroke="#A28CFE" tick={{fill: '#A28CFE', fontWeight: 500}} axisLine={false} tickLine={false} dx={10} />
                       <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }} />

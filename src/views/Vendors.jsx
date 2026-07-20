@@ -996,6 +996,7 @@ const Vendors = ({ initialFilter = '' }) => {
                 stroke="var(--text-secondary)" 
                 axisLine={false}
                 tickLine={false}
+                tick={false}
                 dy={10}
               />
               <YAxis 
