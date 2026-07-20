@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useProcure } from '../context/ProcureContext';
 import { Building2, FileText, Zap, IndianRupee, AlertTriangle, TrendingUp, X, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import ExcelJS from 'exceljs';
+import { normalizeStatus, getStatusClass, getCapacityInMW } from '../utils/constants';
 
 const KPICard = ({ title, value, subtitle, icon: Icon, delay, isAccent }) => (
   <div className={`glass-panel animate-stagger delay-${delay}`} style={{ 
@@ -45,13 +46,18 @@ const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   
   const metrics = useMemo(() => {
-    const total = state.vendors.length;
-    const active = state.vendors.filter(v => v.status === 'Active').length;
-    const totalCapacity = state.vendors.reduce((sum, v) => sum + Number(v.plantCapacity), 0);
-    const avgRate = state.vendors.length ? (state.vendors.reduce((sum, v) => sum + Number(v.rate), 0) / state.vendors.length) : 0;
-    const expiring = state.vendors.filter(v => v.status === 'Expiring Soon').length;
+    const uniqueVendors = new Set(state.vendors.map(v => v.vendorCode).filter(Boolean));
+    const total = uniqueVendors.size;
     
-    return { total, active, totalCapacity: totalCapacity.toFixed(1), avgRate: avgRate.toFixed(2), expiring };
+    const activeVendors = new Set(state.vendors.filter(v => normalizeStatus(v.status) === 'active').map(v => v.vendorCode).filter(Boolean));
+    const active = activeVendors.size;
+    
+    const expiring = state.vendors.filter(v => normalizeStatus(v.status) === 'expiring soon').length;
+    
+    const totalCapacity = state.vendors.reduce((sum, v) => sum + getCapacityInMW(v.plantCapacity, v.capacityUnit), 0);
+    const avgRate = state.vendors.length ? (state.vendors.reduce((sum, v) => sum + Number(v.rate || 0), 0) / state.vendors.length) : 0;
+    
+    return { total, active, totalCapacity: totalCapacity.toFixed(2), avgRate: avgRate.toFixed(2), expiring };
   }, [state.vendors]);
 
   const handleExportExcel = async () => {
@@ -264,11 +270,11 @@ const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.5rem' }}>
-        <KPICard title="Total Capacity" value={`${metrics.totalCapacity} kWp`} subtitle="+12% from last month" icon={Zap} isAccent={true} delay={1} />
-        <KPICard title="Total Vendors" value={metrics.total} subtitle="3 new this week" icon={Building2} delay={2} />
+      <div className="kpi-grid">
+        <KPICard title="Total Capacity" value={`${metrics.totalCapacity} MWp`} subtitle="Live metrics" icon={Zap} isAccent={true} delay={1} />
+        <KPICard title="Total Vendors" value={metrics.total} subtitle="Active unique vendors" icon={Building2} delay={2} />
         <KPICard title="Active Contracts" value={metrics.active} icon={FileText} delay={3} />
-        <KPICard title="Avg Rate (per kWp INR)" value="₹32" icon={IndianRupee} delay={4} />
+        <KPICard title="Avg Rate (per kWp INR)" value={`₹${metrics.avgRate}`} icon={IndianRupee} delay={4} />
       </div>
 
       <div className="glass-panel animate-stagger delay-4" style={{ padding: '2rem' }}>
@@ -289,18 +295,22 @@ const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
               </tr>
             </thead>
             <tbody>
-              {state.vendors.slice(0, 5).map(v => (
+              {[...state.vendors]
+                .sort((a, b) => {
+                  const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                  const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                  return dateB - dateA;
+                })
+                .slice(0, 5)
+                .map(v => (
                 <tr key={v.id}>
                   <td style={{ fontWeight: 600 }}>{v.vendorCode}</td>
                   <td>{v.vendorName}</td>
                   <td className="text-secondary">{v.region}</td>
                   <td style={{ fontWeight: 600 }}>{v.plantCapacity} <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{v.capacityUnit}</span></td>
                   <td>
-                    <span className={`status-pill ${
-                      v.status === 'Active' ? 'status-active' :
-                      v.status === 'Expiring Soon' ? 'status-warning' : 'status-danger'
-                    }`}>
-                      {v.status === 'Active' && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }}></span>}
+                    <span className={`status-pill ${getStatusClass(v.status)}`}>
+                      {normalizeStatus(v.status) === 'active' && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }}></span>}
                       {v.status}
                     </span>
                   </td>

@@ -20,12 +20,14 @@ import {
   AlertTriangle,
   Info,
   CheckCircle,
-  Building
+  Building,
+  FileSpreadsheet
 } from 'lucide-react';
 
 const ProfileModal = ({ user, onClose }) => {
   const { dispatch, showToast } = useProcure();
   const [password, setPassword] = useState(user.password);
+  const isViewer = user.role?.toLowerCase() === 'viewer';
   
   const handleSave = (e) => {
     e.preventDefault();
@@ -61,36 +63,40 @@ const ProfileModal = ({ user, onClose }) => {
             </div>
             <div>
               <p style={{ fontWeight: 600, fontSize: '1.125rem' }}>{user.name}</p>
-              <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{user.email}</p>
+              {!isViewer && <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{user.email}</p>}
             </div>
           </div>
           
           <div style={{ padding: '1rem', background: 'var(--bg-app)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: !isViewer ? '0.5rem' : '0' }}>
               <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Role</span>
               <span style={{ fontWeight: 600, textTransform: 'capitalize' }}>{user.role}</span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Phone</span>
-              <span style={{ fontWeight: 500 }}>{user.phone}</span>
-            </div>
+            {!isViewer && (
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Phone</span>
+                <span style={{ fontWeight: 500 }}>{user.phone}</span>
+              </div>
+            )}
           </div>
         </div>
 
-        <form onSubmit={handleSave}>
-          <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Change Password</label>
-          <div style={{ position: 'relative', marginBottom: '1.5rem' }}>
-            <Lock size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
-            <input 
-              type="text" 
-              className="premium-input" 
-              style={{ paddingLeft: '2.5rem', width: '100%', background: '#fff', color: '#111827' }} 
-              value={password} 
-              onChange={(e) => setPassword(e.target.value)} 
-            />
-          </div>
-          <button type="submit" className="btn-premium" style={{ width: '100%' }}>Save Changes</button>
-        </form>
+        {!isViewer && (
+          <form onSubmit={handleSave}>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Change Password</label>
+            <div style={{ position: 'relative', marginBottom: '1.5rem' }}>
+              <Lock size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+              <input 
+                type="text" 
+                className="premium-input" 
+                style={{ paddingLeft: '2.5rem', width: '100%', background: '#fff', color: '#111827' }} 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)} 
+              />
+            </div>
+            <button type="submit" className="btn-premium" style={{ width: '100%' }}>Save Changes</button>
+          </form>
+        )}
       </div>
     </div>
   );
@@ -173,13 +179,14 @@ const Sidebar = ({ currentTab, setCurrentTab, isCollapsed, userRole, isMobile, i
     { id: 'projects', label: 'Projects', icon: Briefcase },
     { id: 'map', label: 'Region Map', icon: MapIcon },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { id: 'add_excel', label: 'Add Excel', icon: FileSpreadsheet },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
   if (userRole === 'admin') {
     tabs.splice(1, 0, { id: 'employees', label: 'Users', icon: Shield });
   } else if (userRole === 'viewer') {
-    tabs = tabs.filter(t => t.id !== 'vendors' && t.id !== 'employees');
+    tabs = tabs.filter(t => t.id !== 'vendors' && t.id !== 'employees' && t.id !== 'add_excel');
   }
 
   return (
@@ -350,12 +357,13 @@ export const Layout = ({ children, currentTab, setCurrentTab, onLogout, userRole
       
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <header style={{
+          flexShrink: 0,
           height: '80px',
           padding: isMobile ? '0 1rem' : '0 2rem',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          background: 'transparent',
+          background: 'var(--bg-app)',
           zIndex: 40
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '2rem' }}>

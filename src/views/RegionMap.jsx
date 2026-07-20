@@ -4,7 +4,8 @@ import { MapContainer, TileLayer, GeoJSON, Marker, Popup, useMap } from 'react-l
 import L from 'leaflet';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
-import { STATE_TO_REGION, REGION_COLORS, REGION_CENTERS } from '../utils/constants';
+import { STATE_TO_REGION, REGION_COLORS, REGION_CENTERS, getStatusClass } from '../utils/constants';
+import 'leaflet/dist/leaflet.css';
 import { createContainerComponent, useLeafletContext } from '@react-leaflet/core';
 import 'leaflet.markercluster';
 
@@ -147,7 +148,7 @@ const MarkerWithPopup = ({ vendor, focusedVendor, setFocusedVendor }) => {
             <p style={{ margin: '0 0 0.25rem 0', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Vendor: <strong style={{ color: 'var(--text-primary)' }}>{vendor.vendorName}</strong></p>
             <p style={{ margin: '0', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>Capacity: <strong style={{ color: 'var(--text-primary)' }}>{vendor.plantCapacity} {vendor.capacityUnit}</strong> at ₹{vendor.rate}/unit</p>
           </div>
-          <span className={`status-pill ${vendor.status === 'Active' ? 'status-active' : vendor.status === 'Expiring Soon' ? 'status-warning' : 'status-danger'}`} style={{ width: '100%', justifyContent: 'center' }}>
+          <span className={`status-pill ${getStatusClass(vendor.status)}`} style={{ width: '100%', justifyContent: 'center' }}>
             {vendor.status}
           </span>
         </div>
@@ -318,7 +319,7 @@ const RegionMap = () => {
   }, [state.vendors]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '1rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 'calc(100vh - 150px)', gap: '1rem' }}>
       <div className="animate-stagger">
         <h1 style={{ fontSize: '2rem' }}>Geographic Distribution</h1>
         <p className="text-secondary" style={{ marginTop: '0.25rem' }}>Interactive map of your project assets across India.</p>
@@ -328,28 +329,7 @@ const RegionMap = () => {
         {/* Map Container */}
         <div className="glass-panel mobile-map-container" style={{ flex: 2, display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', position: 'relative', width: '100%' }}>
 
-          <div style={{ position: 'absolute', top: '20px', left: '60px', zIndex: 400, display: 'flex', gap: '0.5rem', background: 'var(--bg-card)', backdropFilter: 'blur(16px)', padding: '0.35rem', borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-float)', border: '1px solid var(--border-color)' }}>
-            {['All', 'Active', 'Expiring Soon', 'Expired'].map(f => (
-              <button 
-                key={f}
-                onClick={(e) => { e.stopPropagation(); setStatusFilter(f); }}
-                style={{
-                  background: statusFilter === f ? 'var(--accent-gradient)' : 'transparent',
-                  color: statusFilter === f ? '#fff' : 'var(--text-secondary)',
-                  border: 'none',
-                  padding: '0.5rem 1rem',
-                  fontSize: '0.8rem',
-                  borderRadius: 'var(--radius-md)',
-                  fontWeight: 600,
-                  boxShadow: statusFilter === f ? '0 4px 15px var(--accent-glow)' : 'none',
-                  cursor: 'pointer',
-                  transition: 'all var(--transition-fast)'
-                }}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
+
 
           <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at center, rgba(255,255,255,0.2) 0%, transparent 70%)', pointerEvents: 'none', zIndex: 400 }} />
           
@@ -398,7 +378,7 @@ const RegionMap = () => {
                     <div>
                       <div className="text-secondary" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</div>
                       <div style={{ marginTop: '0.5rem' }}>
-                        <span className={`status-pill ${focusedVendor.status === 'Active' ? 'status-active' : focusedVendor.status === 'Expiring Soon' ? 'status-warning' : 'status-danger'}`}>
+                        <span className={`status-pill ${getStatusClass(focusedVendor.status)}`}>
                           {focusedVendor.status}
                         </span>
                       </div>
@@ -509,7 +489,7 @@ const RegionMap = () => {
                           )}
                         </div>
                       </div>
-                      <span className={`status-pill ${v.status === 'Active' ? 'status-active' : v.status === 'Expiring Soon' ? 'status-warning' : 'status-danger'}`} style={{ transform: 'scale(0.85)' }}>
+                      <span className={`status-pill ${getStatusClass(v.status)}`} style={{ transform: 'scale(0.85)' }}>
                         {v.status}
                       </span>
                     </div>

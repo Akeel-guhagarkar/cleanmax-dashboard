@@ -4,12 +4,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList,
-  AreaChart, Area, ScatterChart, Scatter, ZAxis, ComposedChart, Line, LineChart
+  AreaChart, Area, ScatterChart, Scatter, ZAxis, ComposedChart, Line, LineChart, Brush
 } from 'recharts';
 
 // Updated Vibrant Premium Color Palette
 const COLORS = ['#00C49F', '#0088FE', '#FFBB28', '#FF8042', '#A28CFE'];
-const STATUS_COLORS = { 'Active': '#00C49F', 'Expiring Soon': '#FFBB28', 'Expired': '#FF8042' };
+const STATUS_COLORS = { 'Active': '#00C49F', 'Completed': '#00C49F', 'Expiring Soon': '#FFBB28', 'In Progress': '#FFBB28', 'Expired': '#FF8042', 'Planning': '#FF8042' };
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -114,7 +114,7 @@ const Analytics = () => {
       data[region].count += 1;
       data[region].capacity += (Number(v.plantCapacity) || 0);
     });
-    return Object.values(data).sort((a, b) => b.capacity - a.capacity);
+    return Object.values(data).map(d => ({...d, capacity: Number(d.capacity.toFixed(2))})).sort((a, b) => b.capacity - a.capacity);
   }, [state.vendors]);
 
   const statusData = useMemo(() => {
@@ -126,33 +126,56 @@ const Analytics = () => {
   }, [state.vendors]);
 
   const rateTrendData = useMemo(() => {
-    const sorted = [...state.vendors].sort((a, b) => new Date(a.contractStart) - new Date(b.contractStart));
+    const sorted = [...state.vendors]
+      .filter(v => v.rate && v.contractStart && !isNaN(new Date(v.contractStart).getTime()))
+      .sort((a, b) => new Date(a.contractStart) - new Date(b.contractStart));
+      
     return sorted.map(v => ({
-      name: v.vendorCode,
-      rate: v.rate,
-      date: new Date(v.contractStart).toLocaleDateString()
+      date: new Date(v.contractStart).toLocaleDateString(),
+      rate: Number(Number(v.rate).toFixed(2))
     }));
   }, [state.vendors]);
 
   const rateCapacityData = useMemo(() => {
-    return state.vendors.map(v => ({
-      name: v.vendorName,
-      rate: v.rate,
-      capacity: Number(v.plantCapacity)
-    }));
+    const vendorMap = new Map();
+    state.vendors.forEach(v => {
+      const name = v.vendorName || 'Unknown';
+      const cap = Number(v.plantCapacity) || 0;
+      const rate = Number(v.rate) || 0;
+      if (!vendorMap.has(name)) {
+        vendorMap.set(name, { capacity: 0, totalRate: 0, count: 0 });
+      }
+      const existing = vendorMap.get(name);
+      existing.capacity += cap;
+      existing.totalRate += rate;
+      existing.count += 1;
+    });
+
+    return Array.from(vendorMap.entries()).map(([name, data]) => ({
+      name,
+      capacity: Number(data.capacity.toFixed(2)),
+      rate: Number((data.totalRate / data.count).toFixed(2))
+    })).sort((a, b) => b.capacity - a.capacity).slice(0, 15); // Top 15 to keep it clean
   }, [state.vendors]);
 
   const topVendorsData = useMemo(() => {
-    return [...state.vendors]
-      .sort((a, b) => {
-        const capA = Number(a.plantCapacity) || 0;
-        const capB = Number(b.plantCapacity) || 0;
-        return capB - capA;
-      })
+    const vendorMap = new Map();
+    state.vendors.forEach(v => {
+      const name = v.vendorName || 'Unknown';
+      const cap = Number(v.plantCapacity) || 0;
+      if (!vendorMap.has(name)) {
+        vendorMap.set(name, 0);
+      }
+      vendorMap.set(name, vendorMap.get(name) + cap);
+    });
+
+    return Array.from(vendorMap.entries())
+      .map(([name, capacity]) => ({ name, capacity }))
+      .sort((a, b) => b.capacity - a.capacity)
       .slice(0, 5)
       .map(v => ({
-        name: v.vendorName,
-        capacity: Number(v.plantCapacity) || 0
+        name: v.name,
+        capacity: Number(v.capacity.toFixed(2))
       }));
   }, [state.vendors]);
 
@@ -167,7 +190,13 @@ const Analytics = () => {
         regions[region].total += cap;
       }
     });
-    return Object.values(regions).sort((a, b) => b.total - a.total);
+    return Object.values(regions).map(r => ({
+      ...r,
+      Active: Number(r.Active.toFixed(2)),
+      'Expiring Soon': Number(r['Expiring Soon'].toFixed(2)),
+      Expired: Number(r.Expired.toFixed(2)),
+      total: Number(r.total.toFixed(2))
+    })).sort((a, b) => b.total - a.total);
   }, [state.vendors]);
 
   const tabs = ['Overview', 'Financials', 'Capacity'];
@@ -248,12 +277,12 @@ const Analytics = () => {
             >
               <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '2rem' }}>
                 <h3 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>Vendors by Region</h3>
-                <div style={{ height: 450 }}>
+                <div className="chart-container">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie 
                         data={regionData} dataKey="count" nameKey="name" 
-                        cx="50%" cy="50%" innerRadius={80} outerRadius={120} 
+                        cx="50%" cy="50%" innerRadius={60} outerRadius={100} 
                         paddingAngle={6} stroke="none"
                         animationDuration={1500} animationEasing="ease-out"
                         labelLine={{ stroke: 'var(--text-secondary)', strokeWidth: 2, strokeDasharray: '3 3' }}
@@ -271,12 +300,12 @@ const Analytics = () => {
 
               <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '2rem' }}>
                 <h3 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>Vendor Status Distribution</h3>
-                <div style={{ height: 450 }}>
+                <div className="chart-container">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie 
                         data={statusData} dataKey="value" nameKey="name" 
-                        cx="50%" cy="50%" outerRadius={120} stroke="none"
+                        cx="50%" cy="50%" outerRadius={100} stroke="none"
                         animationDuration={1500} animationEasing="ease-out"
                         labelLine={{ stroke: 'var(--text-secondary)', strokeWidth: 2, strokeDasharray: '3 3' }}
                         label={(props) => renderCustomizedLabel({ ...props, color: STATUS_COLORS[props.name] })}
@@ -304,14 +333,15 @@ const Analytics = () => {
             >
               <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '2rem', gridColumn: '1 / -1' }}>
                 <h3 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>Rate Trends Over Time (₹/unit)</h3>
-                <div style={{ height: 450 }}>
+                <div className="chart-container">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={rateTrendData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                    <LineChart data={rateTrendData} margin={{ top: 20, right: 30, left: 0, bottom: 20 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" opacity={0.5} />
-                      <XAxis dataKey="date" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} axisLine={{ stroke: 'var(--border-color)' }} tickLine={false} dy={10} />
-                      <YAxis stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} axisLine={false} tickLine={false} dx={-10} domain={['dataMin - 0.5', 'dataMax + 0.5']} />
+                      <XAxis dataKey="date" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} minTickGap={20} axisLine={{ stroke: 'var(--border-color)' }} tickLine={false} dy={10} />
+                      <YAxis stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} axisLine={false} tickLine={false} dx={-10} domain={['dataMin - 0.5', 'dataMax + 0.5']} tickFormatter={(val) => val.toFixed(2)} />
                       <Tooltip content={<CustomTooltip />} />
-                      <Line type="linear" dataKey="rate" name="Rate (₹/unit)" stroke="#0088FE" strokeWidth={3} dot={{ r: 5, fill: '#0088FE', stroke: 'var(--bg-card)', strokeWidth: 2 }} activeDot={{ r: 7 }} animationDuration={1500} />
+                      <Line type="monotone" dataKey="rate" name="Rate (₹/unit)" stroke="#0088FE" strokeWidth={3} dot={{ r: 5, fill: '#0088FE', stroke: 'var(--bg-card)', strokeWidth: 2 }} activeDot={{ r: 7 }} animationDuration={1500} />
+                      <Brush dataKey="date" height={28} stroke="#10b981" fill="rgba(16, 185, 129, 0.1)" travellerWidth={14} tickFormatter={() => ''} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -319,17 +349,18 @@ const Analytics = () => {
 
               <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '2rem', gridColumn: '1 / -1' }}>
                 <h3 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>Rate & Capacity by Vendor</h3>
-                <div style={{ height: 450 }}>
+                <div className="chart-container">
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={rateCapacityData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                    <ComposedChart data={rateCapacityData} margin={{ top: 20, right: 30, left: 0, bottom: 20 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" opacity={0.5} />
-                      <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} axisLine={false} tickLine={false} dy={10} />
+                      <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} minTickGap={30} axisLine={false} tickLine={false} dy={10} />
                       <YAxis yAxisId="left" stroke="#0088FE" tick={{fill: '#0088FE', fontWeight: 500}} axisLine={false} tickLine={false} dx={-10} />
                       <YAxis yAxisId="right" orientation="right" stroke="#A28CFE" tick={{fill: '#A28CFE', fontWeight: 500}} axisLine={false} tickLine={false} dx={10} />
                       <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }} />
                       <Legend verticalAlign="top" height={36} wrapperStyle={{ fontWeight: 600 }} />
                       <Bar yAxisId="left" dataKey="capacity" name="Capacity (kWp)" fill="#0088FE" radius={[6, 6, 0, 0]} barSize={40} animationDuration={1500} />
                       <Line yAxisId="right" type="monotone" dataKey="rate" name="Rate (₹/unit)" stroke="#A28CFE" strokeWidth={4} dot={{ r: 6, fill: '#A28CFE', stroke: 'var(--bg-card)', strokeWidth: 3 }} activeDot={{ r: 8 }} animationDuration={1500} />
+                      <Brush dataKey="name" height={28} stroke="#10b981" fill="rgba(16, 185, 129, 0.1)" travellerWidth={14} tickFormatter={() => ''} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
@@ -346,11 +377,11 @@ const Analytics = () => {
               exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.2 } }}
               style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}
             >
-              <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '2rem' }}>
+              <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '2rem', gridColumn: '1 / -1' }}>
                 <h3 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>Capacity by Region (kWp)</h3>
-                <div style={{ height: 400 }}>
+                <div className="chart-container">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={regionData} margin={{ top: 20, right: 10, left: -20, bottom: 0 }}>
+                    <BarChart data={regionData} margin={{ top: 20, right: 20, left: 20, bottom: 20 }}>
                       <ChartDefs />
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" opacity={0.5} />
                       <XAxis dataKey="name" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} axisLine={false} tickLine={false} dy={10} />
@@ -364,11 +395,11 @@ const Analytics = () => {
                 </div>
               </motion.div>
 
-              <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '2rem' }}>
+              <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '2rem', gridColumn: '1 / -1' }}>
                 <h3 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>Top Vendors by Capacity (kWp)</h3>
-                <div style={{ height: 400 }}>
+                <div className="chart-container">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={topVendorsData} layout="vertical" margin={{ top: 0, right: 30, left: 60, bottom: 0 }}>
+                    <BarChart data={topVendorsData} layout="vertical" margin={{ top: 0, right: 50, left: 150, bottom: 0 }}>
                       <ChartDefs />
                       <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border-color)" opacity={0.5} />
                       <XAxis type="number" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} axisLine={false} tickLine={false} />
@@ -384,7 +415,7 @@ const Analytics = () => {
 
               <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '2rem', gridColumn: '1 / -1' }}>
                 <h3 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>Capacity Risk by Region (kWp)</h3>
-                <div style={{ height: 450 }}>
+                <div className="chart-container">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={capacityStatusData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" opacity={0.5} />

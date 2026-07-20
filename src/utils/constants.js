@@ -35,3 +35,21 @@ export const REGION_CENTERS = {
   'East': [85, 24.5],
   'South': [78, 14.5]
 };
+
+export const normalizeStatus = (status) => String(status || '').toLowerCase().trim();
+
+export const getStatusClass = (status) => {
+  const s = normalizeStatus(status);
+  if (['active', 'completed'].includes(s)) return 'status-active';
+  if (['expiring soon', 'in progress'].includes(s)) return 'status-warning';
+  return 'status-danger';
+};
+
+export const getCapacityInMW = (capacity, unit) => {
+  const cap = Number(capacity) || 0;
+  if (String(unit || '').toLowerCase().trim() === 'kwp') {
+    return cap / 1000;
+  }
+  return cap; // assume MWp if not kWp
+};
+

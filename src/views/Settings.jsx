@@ -83,8 +83,11 @@ const Settings = () => {
     { id: 'profile', label: 'Profile', icon: User },
     { id: 'appearance', label: 'Appearance', icon: Sun },
     { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'security', label: 'Security', icon: Shield },
   ];
+
+  if (state.currentUser?.role !== 'viewer') {
+    tabs.push({ id: 'security', label: 'Security', icon: Shield });
+  }
 
   if (state.currentUser?.role === 'admin') {
     tabs.push({ id: 'system', label: 'System', icon: Database });
@@ -149,13 +152,15 @@ const Settings = () => {
                   ) : (
                     <User size={40} color="var(--text-secondary)" />
                   )}
-                  <div style={{
-                    position: 'absolute', bottom: 0, left: 0, right: 0,
-                    background: 'rgba(0,0,0,0.5)', padding: '0.25rem',
-                    textAlign: 'center', cursor: 'pointer'
-                  }} onClick={() => fileInputRef.current.click()}>
-                    <Camera size={14} color="#fff" style={{ margin: '0 auto' }} />
-                  </div>
+                  {state.currentUser?.role !== 'viewer' && (
+                    <div style={{
+                      position: 'absolute', bottom: 0, left: 0, right: 0,
+                      background: 'rgba(0,0,0,0.5)', padding: '0.25rem',
+                      textAlign: 'center', cursor: 'pointer'
+                    }} onClick={() => fileInputRef.current.click()}>
+                      <Camera size={14} color="#fff" style={{ margin: '0 auto' }} />
+                    </div>
+                  )}
                 </div>
                 <div>
                   <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>{state.currentUser?.name}</h3>
@@ -166,39 +171,41 @@ const Settings = () => {
                 </div>
               </div>
 
-              <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '600px' }}>
-                <div className="responsive-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Full Name</label>
-                    <input type="text" className="premium-input" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} />
+              {state.currentUser?.role !== 'viewer' && (
+                <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '600px' }}>
+                  <div className="responsive-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Full Name</label>
+                      <input type="text" className="premium-input" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Phone Number</label>
+                      <input type="text" className="premium-input" value={formData.phone} onChange={(e) => setFormData({...formData, phone: e.target.value})} />
+                    </div>
                   </div>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Phone Number</label>
-                    <input type="text" className="premium-input" value={formData.phone} onChange={(e) => setFormData({...formData, phone: e.target.value})} />
-                  </div>
-                </div>
 
-                <div className="responsive-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                  <div>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Job Title</label>
-                    <input type="text" className="premium-input" value={formData.jobTitle} onChange={(e) => setFormData({...formData, jobTitle: e.target.value})} placeholder="e.g. Senior Engineer" />
+                  <div className="responsive-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Job Title</label>
+                      <input type="text" className="premium-input" value={formData.jobTitle} onChange={(e) => setFormData({...formData, jobTitle: e.target.value})} placeholder="e.g. Senior Engineer" />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Department</label>
+                      <input type="text" className="premium-input" value={formData.department} onChange={(e) => setFormData({...formData, department: e.target.value})} placeholder="e.g. Analytics" />
+                    </div>
                   </div>
+
                   <div>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Department</label>
-                    <input type="text" className="premium-input" value={formData.department} onChange={(e) => setFormData({...formData, department: e.target.value})} placeholder="e.g. Analytics" />
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Email Address</label>
+                    <input type="email" disabled className="premium-input" value={formData.email} style={{ width: '100%', opacity: 0.7, cursor: 'not-allowed' }} />
+                    <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>Email cannot be changed.</p>
                   </div>
-                </div>
 
-                <div>
-                  <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Email Address</label>
-                  <input type="email" disabled className="premium-input" value={formData.email} style={{ width: '100%', opacity: 0.7, cursor: 'not-allowed' }} />
-                  <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>Email cannot be changed.</p>
-                </div>
-
-                <button type="submit" className="btn-premium" style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '1rem' }}>
-                  <Save size={18} /> Save Profile
-                </button>
-              </form>
+                  <button type="submit" className="btn-premium" style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '1rem' }}>
+                    <Save size={18} /> Save Profile
+                  </button>
+                </form>
+              )}
             </div>
           )}
 
@@ -262,29 +269,31 @@ const Settings = () => {
                   </label>
                 </div>
 
-                {/* Password Change */}
-                <form onSubmit={handlePasswordChange} style={{ padding: '1.5rem', background: 'var(--bg-app)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
-                    <Lock size={20} color="var(--text-primary)" />
-                    <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>Change Password</h3>
-                  </div>
-                  
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Current Password</label>
-                      <input type="password" required className="premium-input" value={passwordData.current} onChange={e => setPasswordData({...passwordData, current: e.target.value})} />
+                {/* Password Change (Restricted from Viewer) */}
+                {state.currentUser?.role !== 'viewer' && (
+                  <form onSubmit={handlePasswordChange} style={{ padding: '1.5rem', background: 'var(--bg-app)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                      <Lock size={20} color="var(--text-primary)" />
+                      <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>Change Password</h3>
                     </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>New Password</label>
-                      <input type="password" required className="premium-input" value={passwordData.newPass} onChange={e => setPasswordData({...passwordData, newPass: e.target.value})} />
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Current Password</label>
+                        <input type="password" required className="premium-input" value={passwordData.current} onChange={e => setPasswordData({...passwordData, current: e.target.value})} />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>New Password</label>
+                        <input type="password" required className="premium-input" value={passwordData.newPass} onChange={e => setPasswordData({...passwordData, newPass: e.target.value})} />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Confirm New Password</label>
+                        <input type="password" required className="premium-input" value={passwordData.confirm} onChange={e => setPasswordData({...passwordData, confirm: e.target.value})} />
+                      </div>
+                      <button type="submit" className="btn-premium" style={{ alignSelf: 'flex-start', marginTop: '0.5rem' }}>Update Password</button>
                     </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Confirm New Password</label>
-                      <input type="password" required className="premium-input" value={passwordData.confirm} onChange={e => setPasswordData({...passwordData, confirm: e.target.value})} />
-                    </div>
-                    <button type="submit" className="btn-premium" style={{ alignSelf: 'flex-start', marginTop: '0.5rem' }}>Update Password</button>
-                  </div>
-                </form>
+                  </form>
+                )}
 
                 {/* Active Devices */}
                 <div>

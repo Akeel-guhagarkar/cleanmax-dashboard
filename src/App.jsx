@@ -9,6 +9,7 @@ import Login from './views/Login';
 import Employees from './views/Employees';
 import Projects from './views/Projects';
 import Settings from './views/Settings';
+import AddExcel from './views/AddExcel';
 import { useProcure } from './context/ProcureContext';
 
 class ErrorBoundary extends React.Component {
@@ -65,6 +66,8 @@ const App = () => {
         return <RegionMap />;
       case 'settings':
         return <Settings />;
+      case 'add_excel':
+        return <AddExcel />;
       default:
         return <Dashboard setCurrentTab={setCurrentTab} setVendorFilter={setVendorFilter} />;
     }

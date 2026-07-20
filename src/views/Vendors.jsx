@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { useProcure } from '../context/ProcureContext';
-import { Search, Plus, Download, Trash2, X, GitCompare, Mail, Phone, FileText, User, Building } from 'lucide-react';
+import { Search, Plus, Download, Trash2, X, GitCompare, Mail, Phone, FileText, User, Building, Edit2 } from 'lucide-react';
 import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import ExcelJS from 'exceljs';
 import html2canvas from 'html2canvas';
 import { IndiaMap } from './RegionMap';
-import { REGION_CENTERS } from '../utils/constants';
+import { REGION_CENTERS, normalizeStatus, getStatusClass, getCapacityInMW } from '../utils/constants';
 
 const ComparisonModal = ({ selectedVendors, onClose }) => {
   if (!selectedVendors || selectedVendors.length < 2) return null;
@@ -15,7 +15,7 @@ const ComparisonModal = ({ selectedVendors, onClose }) => {
     { key: 'vendorName', label: 'Name' },
     { key: 'plantName', label: 'Plant' },
     { key: 'plantCapacity', label: 'Capacity', render: (v) => `${v.plantCapacity} ${v.capacityUnit}` },
-    { key: 'rate', label: 'Rate (₹)', render: (v) => `₹${v.rate}` },
+    { key: 'rate', label: 'Rate (₹)', render: (v) => `₹${Number(v.rate).toFixed(2)}` },
     { key: 'region', label: 'Region' },
     { key: 'status', label: 'Status' },
   ];
@@ -47,10 +47,7 @@ const ComparisonModal = ({ selectedVendors, onClose }) => {
                   {selectedVendors.map(v => (
                     <td key={v.id}>
                       {prop.key === 'status' ? (
-                        <span className={`status-pill ${
-                          v.status === 'Active' ? 'status-active' :
-                          v.status === 'Expiring Soon' ? 'status-warning' : 'status-danger'
-                        }`}>
+                        <span className={`status-pill ${getStatusClass(v.status)}`}>
                           {v.status}
                         </span>
                       ) : prop.render ? prop.render(v) : <span style={{ fontWeight: prop.key === 'vendorName' ? 600 : 400 }}>{v[prop.key]}</span>}
@@ -66,9 +63,10 @@ const ComparisonModal = ({ selectedVendors, onClose }) => {
   );
 };
 
-const VendorRegistrationForm = ({ onClose }) => {
-  const { dispatch, showToast } = useProcure();
-  const [formData, setFormData] = useState({
+const VendorRegistrationForm = ({ onClose, initialData = null, isEditing = false }) => {
+  const { state, dispatch, showToast } = useProcure();
+  const [formData, setFormData] = useState(initialData || {
+    vendorCode: '',
     vendorName: '',
     vendorType: 'Manufacturer',
     plantName: '',
@@ -91,19 +89,65 @@ const VendorRegistrationForm = ({ onClose }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    const vendorCode = `VND-${Math.floor(1000 + Math.random() * 9000)}`;
     
-    dispatch({
-      type: 'ADD_VENDOR',
-      payload: {
-        ...formData,
-        vendorCode,
-        plantCapacity: Number(formData.plantCapacity),
-        rate: Number(formData.rate)
+    const getUpdatedHistory = () => {
+      const now = new Date().toISOString();
+      const currentUser = state.currentUser?.name || 'Unknown';
+      const hist = formData.editedByHistory || (formData.lastEditedBy && formData.lastEditedBy !== '-' && formData.lastEditedBy !== 'Unknown' ? [{ name: formData.lastEditedBy, time: formData.lastEditedAt || now }] : []);
+      
+      const historyMap = new Map();
+      hist.forEach(entry => {
+        const name = typeof entry === 'string' ? entry : entry.name;
+        const time = typeof entry === 'string' ? (formData.lastEditedAt || now) : entry.time;
+        historyMap.set(name, { name, time });
+      });
+      historyMap.set(currentUser, { name: currentUser, time: now });
+      return Array.from(historyMap.values());
+    };
+
+    if (isEditing) {
+      dispatch({
+        type: 'UPDATE_VENDOR',
+        payload: {
+          ...formData,
+          plantCapacity: Number(formData.plantCapacity),
+          rate: Number(formData.rate),
+          editedByHistory: getUpdatedHistory(),
+          lastEditedBy: state.currentUser?.name || 'Unknown',
+          lastEditedById: state.currentUser?.id || null,
+          lastEditedAt: new Date().toISOString()
+        }
+      });
+      showToast('Vendor updated successfully', 'success');
+    } else {
+      let finalVendorCode = formData.vendorCode || `VND-${Math.floor(1000 + Math.random() * 9000)}`;
+      let finalVendorName = formData.vendorName;
+
+      let existingVendor = state.vendors.find(v => v.vendorCode && v.vendorCode === finalVendorCode);
+      if (!existingVendor) {
+        existingVendor = state.vendors.find(v => v.vendorName?.toLowerCase().trim() === finalVendorName?.toLowerCase().trim());
       }
-    });
-    
-    showToast('Vendor registered successfully');
+      if (existingVendor) {
+        finalVendorCode = existingVendor.vendorCode;
+        finalVendorName = existingVendor.vendorName;
+      }
+
+      dispatch({
+        type: 'ADD_VENDOR',
+        payload: {
+          ...formData,
+          vendorCode: finalVendorCode,
+          vendorName: finalVendorName,
+          plantCapacity: Number(formData.plantCapacity),
+          rate: Number(formData.rate),
+          editedByHistory: [{ name: state.currentUser?.name || 'Unknown', time: new Date().toISOString() }],
+          lastEditedBy: state.currentUser?.name || 'Unknown',
+          lastEditedById: state.currentUser?.id || null,
+          lastEditedAt: new Date().toISOString()
+        }
+      });
+      showToast('Vendor registered successfully', 'success');
+    }
     onClose();
   };
 
@@ -121,7 +165,7 @@ const VendorRegistrationForm = ({ onClose }) => {
       `}</style>
       <div className="glass-panel animate-fade-in-up" style={{ width: '90%', maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto', padding: '2.5rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-          <h2 style={{ fontSize: '1.75rem' }}>Register Vendor</h2>
+          <h2 style={{ fontSize: '1.75rem' }}>{isEditing ? 'Edit Plant Details' : 'Register Vendor'}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}>
             <X size={24} />
           </button>
@@ -132,6 +176,10 @@ const VendorRegistrationForm = ({ onClose }) => {
           <div>
             <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent-color)' }}>Vendor Details</h3>
             <div className="responsive-grid">
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Vendor Code</label>
+                <input type="text" name="vendorCode" placeholder="Auto-generated if blank" className="premium-input vendor-modal-input" value={formData.vendorCode} onChange={handleChange} />
+              </div>
               <div>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Vendor Name *</label>
                 <input required type="text" name="vendorName" className="premium-input vendor-modal-input" value={formData.vendorName} onChange={handleChange} />
@@ -227,15 +275,27 @@ const VendorRegistrationForm = ({ onClose }) => {
 
 
 const VendorPortfolioModal = ({ vendorName, onClose }) => {
-  const { state } = useProcure();
+  const { state, dispatch, showToast } = useProcure();
   const [isExporting, setIsExporting] = useState(false);
+  const [editingPlant, setEditingPlant] = useState(null);
   const dashboardRef = useRef(null);
   
   const [hoveredState, setHoveredState] = useState(null);
   
+  const getEditorName = (p) => {
+    if (p.lastEditedById) {
+      const user = state.users?.find(u => u.id === p.lastEditedById);
+      if (user && (user.role === 'admin' || user.role === 'employee')) {
+        return user.name;
+      }
+      return 'Unknown';
+    }
+    return p.lastEditedBy || '-';
+  };
+
   const portfolio = useMemo(() => {
     const projects = state.vendors.filter(v => v.vendorName === vendorName);
-    const totalCapacity = projects.reduce((sum, v) => sum + (Number(v.plantCapacity) || 0), 0);
+    const totalCapacity = projects.reduce((sum, v) => sum + getCapacityInMW(v.plantCapacity, v.capacityUnit), 0);
     const avgRate = projects.reduce((sum, v) => sum + (Number(v.rate) || 0), 0) / (projects.length || 1);
     
     // Add default lat/lng for mapping if missing
@@ -251,9 +311,9 @@ const VendorPortfolioModal = ({ vendorName, onClose }) => {
 
     return {
       projects: projectsWithCoords,
-      totalCapacity,
+      totalCapacity: totalCapacity.toFixed(2),
       avgRate: avgRate.toFixed(2),
-      primaryUnit: projectsWithCoords.length > 0 ? projectsWithCoords[0].capacityUnit : 'MWp',
+      primaryUnit: 'MWp',
       primaryRegion: projectsWithCoords.length > 0 ? projectsWithCoords[0].region : null
     };
   }, [state.vendors, vendorName]);
@@ -267,6 +327,13 @@ const VendorPortfolioModal = ({ vendorName, onClose }) => {
       rate: Number(p.rate) || 0
     }));
   }, [portfolio.projects]);
+
+  const handleDeletePlant = (id) => {
+    if (window.confirm('Are you sure you want to delete this plant/contract?')) {
+      dispatch({ type: 'DELETE_VENDOR', payload: id });
+      showToast('Plant deleted successfully', 'success');
+    }
+  };
 
   if (!vendorName) return null;
 
@@ -561,6 +628,10 @@ const VendorPortfolioModal = ({ vendorName, onClose }) => {
                     <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Rate</th>
                     <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Contract Period</th>
                     <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Status</th>
+                    <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Last Edited By</th>
+                    {state.currentUser?.role !== 'viewer' && (
+                      <th style={{ color: '#4b5563', borderBottom: '2px solid #e2e8f0', background: 'transparent' }}>Actions</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -575,16 +646,53 @@ const VendorPortfolioModal = ({ vendorName, onClose }) => {
                         <div style={{ color: '#64748b', fontSize: '0.8rem' }}>{p.region} Region</div>
                       </td>
                       <td style={{ color: '#0f172a', fontWeight: 500 }}>{p.plantCapacity} {p.capacityUnit}</td>
-                      <td style={{ color: '#0f172a', fontWeight: 500 }}>₹{p.rate}</td>
+                      <td style={{ color: '#0f172a', fontWeight: 500 }}>₹{Number(p.rate).toFixed(2)}</td>
                       <td style={{ color: '#64748b', fontSize: '0.85rem' }}>
                         {new Date(p.contractStart).toLocaleDateString()} - <br/>
                         <strong style={{ color: '#0f172a' }}>{new Date(p.contractEnd).toLocaleDateString()}</strong>
                       </td>
                       <td>
-                        <span className={`status-pill ${p.status === 'Active' ? 'status-active' : p.status === 'Expiring Soon' ? 'status-warning' : 'status-danger'}`}>
+                        <span className={`status-pill ${getStatusClass(p.status)}`}>
                           {p.status}
                         </span>
                       </td>
+                      <td>
+                        {(p.lastEditedBy || p.lastEditedById || (p.editedByHistory && p.editedByHistory.length > 0)) ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '120px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+                            {p.editedByHistory && p.editedByHistory.length > 0 ? (
+                              p.editedByHistory.map((h, i) => {
+                                const name = typeof h === 'string' ? h : h.name;
+                                const time = typeof h === 'string' ? (p.lastEditedAt || p.createdAt) : h.time;
+                                return (
+                                  <div key={i} style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(0,0,0,0.05)' }}>
+                                    <span style={{ color: '#0f172a', fontWeight: 600, fontSize: '0.8rem' }}>{name}</span>
+                                    <span style={{ color: '#64748b', fontSize: '0.7rem' }}>{new Date(time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(0,0,0,0.05)' }}>
+                                <span style={{ color: '#0f172a', fontWeight: 600, fontSize: '0.8rem' }}>{getEditorName(p)}</span>
+                                <span style={{ color: '#64748b', fontSize: '0.7rem' }}>{new Date(p.lastEditedAt || p.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>-</span>
+                        )}
+                      </td>
+                      {state.currentUser?.role !== 'viewer' && (
+                        <td>
+                          <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button onClick={() => setEditingPlant(p)} className="btn-ghost" style={{ padding: '0.25rem' }} title="Edit">
+                              <Edit2 size={16} />
+                            </button>
+                            <button onClick={() => handleDeletePlant(p.id)} className="btn-ghost" style={{ padding: '0.25rem', color: '#ef4444' }} title="Delete">
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -594,6 +702,17 @@ const VendorPortfolioModal = ({ vendorName, onClose }) => {
 
         </div>
       </div>
+      {editingPlant && (
+        <VendorRegistrationForm
+          initialData={{
+            ...editingPlant,
+            contractStart: new Date(editingPlant.contractStart).toISOString().split('T')[0],
+            contractEnd: new Date(editingPlant.contractEnd).toISOString().split('T')[0]
+          }}
+          isEditing={true}
+          onClose={() => setEditingPlant(null)}
+        />
+      )}
     </div>
   );
 };
@@ -601,7 +720,7 @@ const VendorPortfolioModal = ({ vendorName, onClose }) => {
 const Vendors = ({ initialFilter = '' }) => {
   const { state, dispatch, showToast } = useProcure();
   const [searchTerm, setSearchTerm] = useState(initialFilter);
-  const [sortConfig, setSortConfig] = useState({ key: 'vendorCode', direction: 'asc' });
+  const [sortConfig, setSortConfig] = useState({ key: 'vendorName', direction: 'asc' });
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showDrawer, setShowDrawer] = useState(false);
   const [showComparison, setShowComparison] = useState(false);
@@ -612,41 +731,93 @@ const Vendors = ({ initialFilter = '' }) => {
   const filteredAndSortedVendors = useMemo(() => {
     let result = [...state.vendors];
 
+    const vendorGroups = {};
+    result.forEach(v => {
+      if (!vendorGroups[v.vendorName]) {
+        vendorGroups[v.vendorName] = {
+          ...v,
+          id: v.vendorCode || v.vendorName,
+          projectIds: [],
+          projectsCount: 0,
+          totalCapacity: 0,
+          totalRate: 0,
+          allRegions: new Set(),
+          allStatuses: new Set()
+        };
+      }
+      const group = vendorGroups[v.vendorName];
+      group.projectIds.push(v.id);
+      group.projectsCount += 1;
+      group.totalCapacity += getCapacityInMW(v.plantCapacity, v.capacityUnit);
+      group.totalRate += (Number(v.rate) || 0);
+      if (v.region && v.region !== '—') group.allRegions.add(v.region);
+      if (v.status) group.allStatuses.add(v.status);
+    });
+
+    let groupedResult = Object.values(vendorGroups).map(group => {
+      let finalStatus = 'Active';
+      if (group.allStatuses.has('Expired')) finalStatus = 'Expired';
+      else if (group.allStatuses.has('Expiring Soon')) finalStatus = 'Expiring Soon';
+
+      return {
+        ...group,
+        plantCapacity: Number(group.totalCapacity.toFixed(2)),
+        capacityUnit: 'MWp',
+        rate: Number((group.totalRate / group.projectsCount).toFixed(2)),
+        region: group.allRegions.size > 1 ? 'Multiple' : (Array.from(group.allRegions)[0] || '—'),
+        status: finalStatus
+      };
+    });
+
     if (searchTerm) {
       const lowerSearch = searchTerm.toLowerCase();
-      result = result.filter(v => 
-        v.vendorCode.toLowerCase().includes(lowerSearch) || 
-        v.vendorName.toLowerCase().includes(lowerSearch) ||
+      groupedResult = groupedResult.filter(v => 
+        (v.vendorCode && v.vendorCode.toLowerCase().includes(lowerSearch)) || 
+        (v.vendorName && v.vendorName.toLowerCase().includes(lowerSearch)) ||
         (v.status && v.status.toLowerCase().includes(lowerSearch))
       );
     }
 
-    result.sort((a, b) => {
-      if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'asc' ? 1 : -1;
+    groupedResult.sort((a, b) => {
+      let valA = a[sortConfig.key] || '';
+      let valB = b[sortConfig.key] || '';
+      
+      if (typeof valA === 'string') valA = valA.toLowerCase();
+      if (typeof valB === 'string') valB = valB.toLowerCase();
+      
+      if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
 
-    return result;
+    return groupedResult;
   }, [state.vendors, searchTerm, sortConfig]);
 
   const overallChartData = useMemo(() => {
     const vendorMap = {};
     state.vendors.forEach(v => {
-      if (!vendorMap[v.vendorName]) {
-        vendorMap[v.vendorName] = { name: v.vendorName, capacity: 0, totalRate: 0, count: 0 };
+      const vName = v.vendorName || 'Unknown';
+      if (!vendorMap[vName]) {
+        vendorMap[vName] = { name: vName, capacity: 0, totalRate: 0, count: 0 };
       }
-      vendorMap[v.vendorName].capacity += Number(v.plantCapacity) || 0;
-      vendorMap[v.vendorName].totalRate += Number(v.rate) || 0;
-      vendorMap[v.vendorName].count += 1;
+      vendorMap[vName].capacity += getCapacityInMW(v.plantCapacity, v.capacityUnit);
+      vendorMap[vName].totalRate += Number(v.rate) || 0;
+      vendorMap[vName].count += 1;
     });
 
-    return Object.values(vendorMap).map(v => ({
-      name: v.name.split(' ')[0],
-      fullName: v.name,
-      capacity: v.capacity,
-      rate: Number((v.totalRate / v.count).toFixed(2))
-    }));
+    return Object.values(vendorMap).map(v => {
+      const words = v.name.split(' ');
+      let shortName = words.length > 1 ? words.slice(0, 2).join(' ') : words[0];
+      if (shortName.length > 15) {
+        shortName = shortName.substring(0, 15) + '...';
+      }
+      return {
+        name: shortName,
+        fullName: v.name,
+        capacity: Number(v.capacity.toFixed(2)),
+        rate: Number((v.totalRate / v.count).toFixed(2))
+      };
+    }).sort((a, b) => b.capacity - a.capacity).slice(0, 20); // Top 20 practical view
   }, [state.vendors]);
 
   const requestSort = (key) => {
@@ -669,7 +840,13 @@ const Vendors = ({ initialFilter = '' }) => {
 
   const handleDeleteSelected = () => {
     if (window.confirm('Delete selected vendors?')) {
-      dispatch({ type: 'DELETE_VENDORS', payload: Array.from(selectedIds) });
+      const idsToDelete = [];
+      filteredAndSortedVendors.forEach(group => {
+        if (selectedIds.has(group.id)) {
+          idsToDelete.push(...group.projectIds);
+        }
+      });
+      dispatch({ type: 'DELETE_VENDORS', payload: idsToDelete });
       setSelectedIds(new Set());
       showToast(`${selectedIds.size} vendors deleted`, 'success');
     }
@@ -701,9 +878,11 @@ const Vendors = ({ initialFilter = '' }) => {
           <button onClick={handleExportCSV} className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, justifyContent: 'center' }}>
             <Download size={18} /> Export CSV
           </button>
-          <button onClick={() => setShowDrawer(true)} className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, justifyContent: 'center' }}>
-            <Plus size={18} /> New Vendor
-          </button>
+          {state.currentUser?.role !== 'viewer' && (
+            <button onClick={() => setShowDrawer(true)} className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, justifyContent: 'center' }}>
+              <Plus size={18} /> New Vendor
+            </button>
+          )}
         </div>
       </div>
 
@@ -729,9 +908,11 @@ const Vendors = ({ initialFilter = '' }) => {
                   <GitCompare size={16} /> Compare
                 </button>
               )}
-              <button onClick={handleDeleteSelected} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'none', padding: '0.35rem 1rem', borderRadius: '99px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
-                <Trash2 size={16} /> Delete
-              </button>
+              {state.currentUser?.role !== 'viewer' && (
+                <button onClick={handleDeleteSelected} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'none', padding: '0.35rem 1rem', borderRadius: '99px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
+                  <Trash2 size={16} /> Delete
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -774,13 +955,10 @@ const Vendors = ({ initialFilter = '' }) => {
                   </td>
                   <td className="text-secondary">{v.region}</td>
                   <td style={{ fontWeight: 600 }}>{v.plantCapacity} <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{v.capacityUnit}</span></td>
-                  <td style={{ fontWeight: 600 }}>₹{v.rate}</td>
+                  <td style={{ fontWeight: 600 }}>₹{Number(v.rate).toFixed(2)}</td>
                   <td>
-                    <span className={`status-pill ${
-                      v.status === 'Active' ? 'status-active' :
-                      v.status === 'Expiring Soon' ? 'status-warning' : 'status-danger'
-                    }`}>
-                      {v.status === 'Active' && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }}></span>}
+                    <span className={`status-pill ${getStatusClass(v.status)}`}>
+                      {normalizeStatus(v.status) === 'active' && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }}></span>}
                       {v.status}
                     </span>
                   </td>

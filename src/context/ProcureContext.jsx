@@ -1,8 +1,8 @@
-import React, { createContext, useReducer, useEffect, useContext } from 'react';
+import React, { createContext, useReducer, useEffect, useContext, useState } from 'react';
 import { SEED_VENDORS, SEED_USERS, SEED_PROJECTS, calculateStatus } from '../utils/seedData';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../firebase';
-import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, deleteDoc, writeBatch, collection } from 'firebase/firestore';
 
 const ProcureContext = createContext();
 
@@ -14,10 +14,10 @@ const getInitialState = () => {
     users: [],
     projects: [],
     currentUser: savedCurrentUser ? JSON.parse(savedCurrentUser) : null,
-    lastSynced: null,
     isDarkMode: savedDarkMode === 'true',
     toasts: [],
     notifications: [],
+    uploadHistory: [],
   };
 };
 
@@ -25,145 +25,66 @@ const initialState = getInitialState();
 
 const vendorReducer = (state, action) => {
   switch (action.type) {
-    case 'SYNC_FROM_FIREBASE': {
-      const newUsers = action.payload.users || [];
-      const updatedCurrentUser = state.currentUser ? newUsers.find(u => u.email === state.currentUser.email) || state.currentUser : null;
+    case 'SYNC_COLLECTION': {
       return {
         ...state,
-        vendors: action.payload.vendors || [],
-        users: newUsers,
-        projects: action.payload.projects || [],
-        notifications: action.payload.notifications || [],
-        currentUser: updatedCurrentUser,
-        // don't touch lastSynced to avoid infinite loops
+        [action.payload.key]: action.payload.data,
       };
     }
     case 'LOGIN':
-      return {
-        ...state,
-        currentUser: action.payload,
-      };
+      return { ...state, currentUser: action.payload };
     case 'LOGOUT':
-      return {
-        ...state,
-        currentUser: null,
-      };
-    case 'ADD_USER':
-      return {
-        ...state,
-        users: [...state.users, action.payload],
-        lastSynced: new Date().toISOString(),
-      };
-    case 'UPDATE_USER': {
-      const updatedUsers = state.users.map(u => u.id === action.payload.id ? { ...u, ...action.payload } : u);
-      const isCurrentUser = state.currentUser?.id === action.payload.id;
-      return {
-        ...state,
-        users: updatedUsers,
-        currentUser: isCurrentUser ? { ...state.currentUser, ...action.payload } : state.currentUser,
-        lastSynced: new Date().toISOString(),
-      };
-    }
-    case 'DELETE_USER':
-      return {
-        ...state,
-        users: state.users.filter(u => u.id !== action.payload),
-        lastSynced: new Date().toISOString(),
-      };
-    case 'ADD_PROJECT':
-      return {
-        ...state,
-        projects: [...state.projects, { ...action.payload, id: uuidv4(), createdAt: new Date().toISOString() }],
-        lastSynced: new Date().toISOString(),
-      };
-    case 'UPDATE_PROJECT':
-      return {
-        ...state,
-        projects: state.projects.map(p => p.id === action.payload.id ? { ...p, ...action.payload } : p),
-        lastSynced: new Date().toISOString(),
-      };
-    case 'DELETE_PROJECTS':
-      return {
-        ...state,
-        projects: state.projects.filter(p => !action.payload.includes(p.id)),
-        lastSynced: new Date().toISOString(),
-      };
-    case 'ADD_VENDOR':
-      const newVendor = {
-        ...action.payload,
-        id: uuidv4(),
-        status: calculateStatus(action.payload.contractEnd),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      return {
-        ...state,
-        vendors: [...state.vendors, newVendor],
-        lastSynced: new Date().toISOString(),
-      };
-    case 'UPDATE_VENDOR':
-      return {
-        ...state,
-        vendors: state.vendors.map(v => 
-          v.id === action.payload.id 
-            ? { ...v, ...action.payload, status: calculateStatus(action.payload.contractEnd), updatedAt: new Date().toISOString() } 
-            : v
-        ),
-        lastSynced: new Date().toISOString(),
-      };
-    case 'DELETE_VENDOR':
-      return {
-        ...state,
-        vendors: state.vendors.filter(v => v.id !== action.payload),
-        lastSynced: new Date().toISOString(),
-      };
-    case 'DELETE_VENDORS':
-      return {
-        ...state,
-        vendors: state.vendors.filter(v => !action.payload.includes(v.id)),
-        lastSynced: new Date().toISOString(),
-      };
+      return { ...state, currentUser: null };
     case 'TOGGLE_DARK_MODE':
-      return {
-        ...state,
-        isDarkMode: !state.isDarkMode,
-      };
-    case 'ADD_NOTIFICATION':
-      return {
-        ...state,
-        notifications: [{ id: uuidv4(), timestamp: new Date().toISOString(), readBy: [], ...action.payload }, ...state.notifications],
-        lastSynced: new Date().toISOString(),
-      };
-    case 'MARK_NOTIFICATION_READ':
-      return {
-        ...state,
-        notifications: state.notifications.map(n => 
-          n.id === action.payload.notificationId 
-            ? { ...n, readBy: [...new Set([...(n.readBy || []), action.payload.userId])] } 
-            : n
-        ),
-        lastSynced: new Date().toISOString(),
-      };
-    case 'MARK_ALL_NOTIFICATIONS_READ':
-      return {
-        ...state,
-        notifications: state.notifications.map(n => 
-          n.targetRoles.includes(action.payload.role)
-            ? { ...n, readBy: [...new Set([...(n.readBy || []), action.payload.userId])] }
-            : n
-        ),
-        lastSynced: new Date().toISOString(),
-      };
+      return { ...state, isDarkMode: !state.isDarkMode };
     case 'ADD_TOAST':
-      return {
-        ...state,
-        toasts: [...state.toasts, { id: uuidv4(), ...action.payload }],
-      };
+      return { ...state, toasts: [...state.toasts, { id: uuidv4(), ...action.payload }] };
     case 'REMOVE_TOAST':
+      return { ...state, toasts: state.toasts.filter(t => t.id !== action.payload) };
+    
+    // Local optimistic updates
+    case 'ADD_VENDOR':
+      return { ...state, vendors: [...state.vendors, { ...action.payload, status: calculateStatus(action.payload.contractEnd), createdAt: new Date().toISOString() }] };
+    case 'UPDATE_VENDOR':
+      return { ...state, vendors: state.vendors.map(v => v.id === action.payload.id ? { ...v, ...action.payload, status: calculateStatus(action.payload.contractEnd), updatedAt: new Date().toISOString() } : v) };
+    case 'DELETE_VENDOR':
+      return { ...state, vendors: state.vendors.filter(v => v.id !== action.payload) };
+    case 'DELETE_VENDORS':
+      return { ...state, vendors: state.vendors.filter(v => !action.payload.includes(v.id)) };
+      
+    case 'ADD_USER':
+      return { ...state, users: [...state.users, action.payload] };
+    case 'UPDATE_USER':
+      return { ...state, users: state.users.map(u => u.id === action.payload.id ? { ...u, ...action.payload } : u) };
+    case 'DELETE_USER':
+      return { ...state, users: state.users.filter(u => u.id !== action.payload) };
+      
+    case 'ADD_PROJECT':
+      return { ...state, projects: [...state.projects, { ...action.payload, createdAt: new Date().toISOString() }] };
+    case 'UPDATE_PROJECT':
+      return { ...state, projects: state.projects.map(p => p.id === action.payload.id ? { ...p, ...action.payload } : p) };
+    case 'DELETE_PROJECTS':
+      return { ...state, projects: state.projects.filter(p => !action.payload.includes(p.id)) };
+      
+    case 'ADD_NOTIFICATION':
+      return { ...state, notifications: [{ id: uuidv4(), timestamp: new Date().toISOString(), readBy: [], ...action.payload }, ...state.notifications] };
+    case 'MARK_NOTIFICATION_READ':
+      return { ...state, notifications: state.notifications.map(n => n.id === action.payload.notificationId ? { ...n, readBy: [...new Set([...(n.readBy || []), action.payload.userId])] } : n) };
+    case 'MARK_ALL_NOTIFICATIONS_READ':
+      return { ...state, notifications: state.notifications.map(n => n.targetRoles.includes(action.payload.role) ? { ...n, readBy: [...new Set([...(n.readBy || []), action.payload.userId])] } : n) };
+      
+    case 'IMPORT_EXCEL':
       return {
         ...state,
-        toasts: state.toasts.filter(t => t.id !== action.payload),
+        vendors: [...state.vendors, ...action.payload.vendors],
+        projects: [...state.projects, ...action.payload.projects],
       };
+      
+    case 'ADD_UPLOAD_HISTORY':
+      return { ...state, uploadHistory: [{ id: action.payload.id, timestamp: new Date().toISOString(), ...action.payload }, ...state.uploadHistory] };
+    case 'DELETE_UPLOAD_HISTORY':
+      return { ...state, uploadHistory: state.uploadHistory.filter(h => h.id !== action.payload) };
+
     default:
       return state;
   }
@@ -171,68 +92,43 @@ const vendorReducer = (state, action) => {
 
 export const ProcureProvider = ({ children }) => {
   const [state, dispatch] = useReducer(vendorReducer, initialState);
+  const [isInitializing, setIsInitializing] = useState(true);
 
-  // Initialize data from Firestore and listen to real-time changes
+  // Initialize data from Firestore Collections
   useEffect(() => {
-    const stateDocRef = doc(db, 'appData', 'globalState');
+    let unsubVendors, unsubProjects, unsubUsers, unsubNotifications, unsubHistory;
     
-    const fallbackToSeedData = () => {
-      const initialVendors = SEED_VENDORS.map(v => ({ ...v, status: calculateStatus(v.contractEnd) }));
-      const initialNotifications = [
-        { id: uuidv4(), type: 'warning', message: 'Vendor "SunPower Innovations" contract is expiring in 15 days.', targetRoles: ['admin', 'user'], timestamp: new Date(Date.now() - 3600000).toISOString(), readBy: [] },
-        { id: uuidv4(), type: 'alert', message: 'New viewer role was successfully provisioned.', targetRoles: ['admin'], timestamp: new Date(Date.now() - 86400000).toISOString(), readBy: [] },
-        { id: uuidv4(), type: 'success', message: 'Project "Desert Alpha" has successfully completed its planning phase.', targetRoles: ['admin', 'user', 'viewer'], timestamp: new Date(Date.now() - 172800000).toISOString(), readBy: [] },
-      ];
-      
-      const initialData = {
-        vendors: initialVendors,
-        users: SEED_USERS,
-        projects: SEED_PROJECTS,
-        notifications: initialNotifications
-      };
-      
-      dispatch({ type: 'SYNC_FROM_FIREBASE', payload: initialData });
-      return initialData;
+    try {
+      unsubVendors = onSnapshot(collection(db, 'vendors'), (snapshot) => {
+        dispatch({ type: 'SYNC_COLLECTION', payload: { key: 'vendors', data: snapshot.docs.map(doc => doc.data()) } });
+      });
+      unsubProjects = onSnapshot(collection(db, 'projects'), (snapshot) => {
+        dispatch({ type: 'SYNC_COLLECTION', payload: { key: 'projects', data: snapshot.docs.map(doc => doc.data()) } });
+      });
+      unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+        dispatch({ type: 'SYNC_COLLECTION', payload: { key: 'users', data: snapshot.docs.map(doc => doc.data()) } });
+      });
+      unsubHistory = onSnapshot(collection(db, 'uploadHistory'), (snapshot) => {
+        dispatch({ type: 'SYNC_COLLECTION', payload: { key: 'uploadHistory', data: snapshot.docs.map(doc => doc.data()).sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)) } });
+      });
+      unsubNotifications = onSnapshot(collection(db, 'notifications'), (snapshot) => {
+        dispatch({ type: 'SYNC_COLLECTION', payload: { key: 'notifications', data: snapshot.docs.map(doc => doc.data()) } });
+        setIsInitializing(false);
+      });
+    } catch (e) {
+      console.error("Firebase Sync Error", e);
+      setIsInitializing(false);
+    }
+
+    return () => {
+      if (unsubVendors) unsubVendors();
+      if (unsubProjects) unsubProjects();
+      if (unsubUsers) unsubUsers();
+      if (unsubNotifications) unsubNotifications();
+      if (unsubHistory) unsubHistory();
     };
-
-    const unsubscribe = onSnapshot(
-      stateDocRef, 
-      (docSnap) => {
-        if (docSnap.exists()) {
-          // Only sync if the change came from the server (another device), 
-          // to avoid local state being overwritten mid-update.
-          if (!docSnap.metadata.hasPendingWrites) {
-            dispatch({ type: 'SYNC_FROM_FIREBASE', payload: docSnap.data() });
-          }
-        } else {
-          // First time initialization: upload seed data to Firestore
-          const initialData = fallbackToSeedData();
-          setDoc(stateDocRef, initialData).catch(err => console.error("Failed to initialize Firebase data:", err));
-        }
-      },
-      (error) => {
-        console.error("Firebase Sync Error (Did you create the Firestore Database in the console?):", error);
-        fallbackToSeedData();
-      }
-    );
-
-    return () => unsubscribe();
   }, []);
 
-  // Persist data back to Firestore whenever local state changes
-  useEffect(() => {
-    if (state.lastSynced) {
-      const stateDocRef = doc(db, 'appData', 'globalState');
-      setDoc(stateDocRef, {
-        vendors: state.vendors,
-        users: state.users,
-        projects: state.projects,
-        notifications: state.notifications
-      }, { merge: true });
-    }
-  }, [state.lastSynced]);
-
-  // Handle local UI settings (these don't sync across devices for the same user unless tied to user profile, so localStorage is fine for these)
   useEffect(() => {
     if (state.currentUser) {
       localStorage.setItem('procure360_current_user', JSON.stringify(state.currentUser));
@@ -250,13 +146,147 @@ export const ProcureProvider = ({ children }) => {
     }
   }, [state.isDarkMode]);
 
+  // Firebase wrapper for dispatch
+  const asyncDispatch = async (action) => {
+    // Optimistically update UI
+    dispatch(action);
+
+    try {
+      switch (action.type) {
+        case 'ADD_VENDOR':
+        case 'UPDATE_VENDOR':
+          await setDoc(doc(db, 'vendors', action.payload.id), action.payload, { merge: true });
+          break;
+        case 'DELETE_VENDOR':
+          await deleteDoc(doc(db, 'vendors', action.payload));
+          break;
+        case 'DELETE_VENDORS': {
+          const batchV = writeBatch(db);
+          action.payload.forEach(id => batchV.delete(doc(db, 'vendors', id)));
+          await batchV.commit();
+          break;
+        }
+        case 'ADD_PROJECT':
+        case 'UPDATE_PROJECT':
+          await setDoc(doc(db, 'projects', action.payload.id), action.payload, { merge: true });
+          break;
+        case 'DELETE_PROJECTS': {
+          const batchP = writeBatch(db);
+          action.payload.forEach(id => batchP.delete(doc(db, 'projects', id)));
+          await batchP.commit();
+          break;
+        }
+        case 'ADD_USER':
+        case 'UPDATE_USER':
+          await setDoc(doc(db, 'users', action.payload.id), action.payload, { merge: true });
+          break;
+        case 'DELETE_USER':
+          await deleteDoc(doc(db, 'users', action.payload));
+          break;
+        case 'ADD_NOTIFICATION':
+          await setDoc(doc(db, 'notifications', action.payload.id || uuidv4()), { ...action.payload, timestamp: new Date().toISOString() }, { merge: true });
+          break;
+        case 'MARK_NOTIFICATION_READ': {
+          const notif = state.notifications.find(n => n.id === action.payload.notificationId);
+          if (notif) {
+            const newReadBy = [...new Set([...(notif.readBy || []), action.payload.userId])];
+            await setDoc(doc(db, 'notifications', action.payload.notificationId), { readBy: newReadBy }, { merge: true });
+          }
+          break;
+        }
+        case 'MARK_ALL_NOTIFICATIONS_READ': {
+          const batchN = writeBatch(db);
+          state.notifications.forEach(n => {
+            if (n.targetRoles.includes(action.payload.role)) {
+              const newReadBy = [...new Set([...(n.readBy || []), action.payload.userId])];
+              batchN.set(doc(db, 'notifications', n.id), { readBy: newReadBy }, { merge: true });
+            }
+          });
+          await batchN.commit();
+          break;
+        }
+        case 'IMPORT_EXCEL': {
+          // Batch process max 500 operations per batch
+          let batch = writeBatch(db);
+          let count = 0;
+          
+          for (const v of action.payload.vendors) {
+            batch.set(doc(db, 'vendors', v.id), v, { merge: true });
+            count++;
+            if (count === 490) {
+              await batch.commit();
+              batch = writeBatch(db);
+              count = 0;
+            }
+          }
+          for (const p of action.payload.projects) {
+            batch.set(doc(db, 'projects', p.id), p, { merge: true });
+            count++;
+            if (count === 490) {
+              await batch.commit();
+              batch = writeBatch(db);
+              count = 0;
+            }
+          }
+          if (count > 0) {
+            await batch.commit();
+          }
+          break;
+        }
+        case 'ADD_UPLOAD_HISTORY':
+          await setDoc(doc(db, 'uploadHistory', action.payload.id), { ...action.payload, timestamp: new Date().toISOString() }, { merge: true });
+          break;
+        case 'DELETE_UPLOAD_HISTORY': {
+          const historyRecord = state.uploadHistory.find(h => h.id === action.payload);
+          if (historyRecord) {
+            
+            // Optimistic local deletion
+            if (historyRecord.vendorIds?.length) dispatch({ type: 'DELETE_VENDORS', payload: historyRecord.vendorIds });
+            if (historyRecord.projectIds?.length) dispatch({ type: 'DELETE_PROJECTS', payload: historyRecord.projectIds });
+
+            let delBatch = writeBatch(db);
+            let delCount = 0;
+            
+            const processBatch = async () => {
+              if (delCount > 0) {
+                await delBatch.commit();
+                delBatch = writeBatch(db);
+                delCount = 0;
+              }
+            };
+            
+            if (historyRecord.vendorIds) {
+              for (const vId of historyRecord.vendorIds) {
+                delBatch.delete(doc(db, 'vendors', vId));
+                delCount++;
+                if (delCount === 490) await processBatch();
+              }
+            }
+            if (historyRecord.projectIds) {
+              for (const pId of historyRecord.projectIds) {
+                delBatch.delete(doc(db, 'projects', pId));
+                delCount++;
+                if (delCount === 490) await processBatch();
+              }
+            }
+            delBatch.delete(doc(db, 'uploadHistory', action.payload));
+            delCount++;
+            await processBatch();
+          }
+          break;
+        }
+      }
+    } catch (e) {
+      console.error("Firebase Sync Error (asyncDispatch):", e);
+    }
+  };
+
   const showToast = (message, type = 'success') => {
-    const toastPayload = { message, type };
-    dispatch({ type: 'ADD_TOAST', payload: toastPayload });
+    asyncDispatch({ type: 'ADD_TOAST', payload: { message, type } });
   };
 
   return (
-    <ProcureContext.Provider value={{ state, dispatch, showToast }}>
+    <ProcureContext.Provider value={{ state, dispatch: asyncDispatch, showToast }}>
       {children}
     </ProcureContext.Provider>
   );

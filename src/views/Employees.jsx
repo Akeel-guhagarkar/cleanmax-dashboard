@@ -44,13 +44,17 @@ const EmployeeRegistrationForm = ({ onClose }) => {
       return;
     }
 
-    const email = (formData.email || `${formData.name.toLowerCase().replace(/[^a-z0-9]/g, '.')}@cleanmax.energy`).trim().toLowerCase();
+    const baseName = formData.name ? formData.name.toLowerCase().replace(/[^a-z0-9]/g, '.') : `viewer.${Math.floor(Math.random() * 10000)}`;
+    const email = (formData.email || `${baseName}@cleanmax.energy`).trim().toLowerCase();
     const password = (formData.password || generatePassword()).trim();
     
+    const finalName = formData.role === 'viewer' ? 'Viewer' : formData.name;
+    const finalPhone = formData.role === 'viewer' ? '-' : formData.phone;
+
     const newUser = {
       id: uuidv4(),
-      name: formData.name,
-      phone: formData.phone,
+      name: finalName,
+      phone: finalPhone,
       email,
       password,
       role: formData.role,
@@ -84,16 +88,18 @@ const EmployeeRegistrationForm = ({ onClose }) => {
       
       {!generatedCredentials ? (
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          <div className="responsive-grid">
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Name *</label>
-              <input required type="text" name="name" className="premium-input employee-modal-input" placeholder="e.g. Jane Doe" value={formData.name} onChange={handleChange} />
+          {formData.role !== 'viewer' && (
+            <div className="responsive-grid">
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Name *</label>
+                <input required type="text" name="name" className="premium-input employee-modal-input" placeholder="e.g. Jane Doe" value={formData.name} onChange={handleChange} />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Phone *</label>
+                <input required type="text" name="phone" className="premium-input employee-modal-input" placeholder="+91..." value={formData.phone} onChange={handleChange} />
+              </div>
             </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Phone *</label>
-              <input required type="text" name="phone" className="premium-input employee-modal-input" placeholder="+91..." value={formData.phone} onChange={handleChange} />
-            </div>
-          </div>
+          )}
           
           <div className="responsive-grid">
             <div>

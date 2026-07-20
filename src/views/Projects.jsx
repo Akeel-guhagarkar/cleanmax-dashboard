@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { useProcure } from '../context/ProcureContext';
-import { Search, Plus, Trash2, Download, Briefcase, X } from 'lucide-react';
+import { Search, Plus, Trash2, Download, Briefcase, X, Edit2 } from 'lucide-react';
+import { getStatusClass } from '../utils/constants';
 
-const ProjectRegistrationForm = ({ onClose }) => {
-  const { dispatch, showToast } = useProcure();
-  const [formData, setFormData] = useState({
+const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = false }) => {
+  const { state, dispatch, showToast } = useProcure();
+  const [formData, setFormData] = useState(initialData || {
     projectName: '',
     client: '',
     type: 'Solar',
@@ -22,19 +23,53 @@ const ProjectRegistrationForm = ({ onClose }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    const projectCode = `PRJ-${new Date().getFullYear()}-${String(Math.floor(1 + Math.random() * 99)).padStart(2, '0')}`;
     
-    dispatch({
-      type: 'ADD_PROJECT',
-      payload: {
-        ...formData,
-        projectCode,
-        capacity: Number(formData.capacity),
-        budget: Number(formData.budget)
-      }
-    });
-    
-    showToast('Project created successfully');
+    const getUpdatedHistory = () => {
+      const now = new Date().toISOString();
+      const currentUser = state.currentUser?.name || 'Unknown';
+      const hist = formData.editedByHistory || (formData.lastEditedBy && formData.lastEditedBy !== '-' && formData.lastEditedBy !== 'Unknown' ? [{ name: formData.lastEditedBy, time: formData.lastEditedAt || now }] : []);
+      
+      const historyMap = new Map();
+      hist.forEach(entry => {
+        const name = typeof entry === 'string' ? entry : entry.name;
+        const time = typeof entry === 'string' ? (formData.lastEditedAt || now) : entry.time;
+        historyMap.set(name, { name, time });
+      });
+      historyMap.set(currentUser, { name: currentUser, time: now });
+      return Array.from(historyMap.values());
+    };
+
+    if (isEditing) {
+      dispatch({
+        type: 'UPDATE_PROJECT',
+        payload: {
+          ...formData,
+          capacity: Number(formData.capacity),
+          budget: Number(formData.budget),
+          editedByHistory: getUpdatedHistory(),
+          lastEditedBy: state.currentUser?.name || 'Unknown',
+          lastEditedById: state.currentUser?.id || null,
+          lastEditedAt: new Date().toISOString()
+        }
+      });
+      showToast('Project updated successfully', 'success');
+    } else {
+      const projectCode = formData.projectCode || `PRJ-${new Date().getFullYear()}-${String(Math.floor(1 + Math.random() * 99)).padStart(2, '0')}`;
+      dispatch({
+        type: 'ADD_PROJECT',
+        payload: {
+          ...formData,
+          projectCode,
+          capacity: Number(formData.capacity),
+          budget: Number(formData.budget),
+          editedByHistory: [{ name: state.currentUser?.name || 'Unknown', time: new Date().toISOString() }],
+          lastEditedBy: state.currentUser?.name || 'Unknown',
+          lastEditedById: state.currentUser?.id || null,
+          lastEditedAt: new Date().toISOString()
+        }
+      });
+      showToast('Project created successfully', 'success');
+    }
     onClose();
   };
 
@@ -52,7 +87,7 @@ const ProjectRegistrationForm = ({ onClose }) => {
       `}</style>
       <div className="glass-panel animate-fade-in-up" style={{ width: '90%', maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto', padding: '2.5rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-          <h2 style={{ fontSize: '1.75rem' }}>New Project</h2>
+          <h2 style={{ fontSize: '1.75rem' }}>{isEditing ? 'Edit Project' : 'New Project'}</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}>
             <X size={24} />
           </button>
@@ -138,7 +173,19 @@ const Projects = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showDrawer, setShowDrawer] = useState(false);
+  const [editingProject, setEditingProject] = useState(null);
   
+  const getEditorName = (p) => {
+    if (p.lastEditedById) {
+      const user = state.users?.find(u => u.id === p.lastEditedById);
+      if (user && (user.role === 'admin' || user.role === 'employee')) {
+        return user.name;
+      }
+      return 'Unknown';
+    }
+    return p.lastEditedBy || '-';
+  };
+
   const projects = useMemo(() => {
     let result = [...(state.projects || [])];
 
@@ -196,9 +243,11 @@ const Projects = () => {
           <button className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, justifyContent: 'center' }}>
             <Download size={18} /> Export
           </button>
-          <button onClick={() => setShowDrawer(true)} className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, justifyContent: 'center' }}>
-            <Plus size={18} /> New Project
-          </button>
+          {state.currentUser?.role !== 'viewer' && (
+            <button onClick={() => setShowDrawer(true)} className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, justifyContent: 'center' }}>
+              <Plus size={18} /> New Project
+            </button>
+          )}
         </div>
       </div>
 
@@ -216,7 +265,7 @@ const Projects = () => {
             />
           </div>
           
-          {selectedIds.size > 0 && (
+          {selectedIds.size > 0 && state.currentUser?.role !== 'viewer' && (
             <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.5rem 1rem', borderRadius: '99px' }}>
               <span style={{ fontWeight: 600, color: 'var(--accent-color)' }}>{selectedIds.size} selected</span>
               <button onClick={handleDeleteSelected} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'none', padding: '0.35rem 1rem', borderRadius: '99px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
@@ -244,6 +293,10 @@ const Projects = () => {
                 <th>Capacity</th>
                 <th>Budget</th>
                 <th>Status</th>
+                <th>Last Edited By</th>
+                {state.currentUser?.role !== 'viewer' && (
+                  <th>Actions</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -259,13 +312,44 @@ const Projects = () => {
                   <td style={{ fontWeight: 600 }}>{p.capacity} <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{p.unit}</span></td>
                   <td style={{ fontWeight: 600 }}>{formatCurrency(p.budget)}</td>
                   <td>
-                    <span className={`status-pill ${
-                      p.status === 'Completed' ? 'status-active' :
-                      p.status === 'In Progress' ? 'status-warning' : 'status-danger'
-                    }`}>
+                    <span className={`status-pill ${getStatusClass(p.status)}`}>
                       {p.status}
                     </span>
                   </td>
+                  <td>
+                    {(p.lastEditedBy || p.lastEditedById || (p.editedByHistory && p.editedByHistory.length > 0)) ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '120px', overflowY: 'auto', paddingRight: '0.25rem' }}>
+                        {p.editedByHistory && p.editedByHistory.length > 0 ? (
+                          p.editedByHistory.map((h, i) => {
+                            const name = typeof h === 'string' ? h : h.name;
+                            const time = typeof h === 'string' ? (p.lastEditedAt || p.createdAt) : h.time;
+                            return (
+                              <div key={i} style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(0,0,0,0.05)' }}>
+                                <span style={{ color: '#0f172a', fontWeight: 600, fontSize: '0.8rem' }}>{name}</span>
+                                <span style={{ color: '#64748b', fontSize: '0.7rem' }}>{new Date(time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(0,0,0,0.05)' }}>
+                            <span style={{ color: '#0f172a', fontWeight: 600, fontSize: '0.8rem' }}>{getEditorName(p)}</span>
+                            <span style={{ color: '#64748b', fontSize: '0.7rem' }}>{new Date(p.lastEditedAt || p.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>-</span>
+                    )}
+                  </td>
+                  {state.currentUser?.role !== 'viewer' && (
+                    <td>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button onClick={() => setEditingProject(p)} className="btn-ghost" style={{ padding: '0.25rem' }} title="Edit">
+                          <Edit2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
               {projects.length === 0 && (
@@ -287,6 +371,20 @@ const Projects = () => {
         <>
           <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 90 }} onClick={() => setShowDrawer(false)} />
           <ProjectRegistrationForm onClose={() => setShowDrawer(false)} />
+        </>
+      )}
+
+      {editingProject && (
+        <>
+          <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 90 }} onClick={() => setEditingProject(null)} />
+          <ProjectRegistrationForm 
+            initialData={{
+              ...editingProject,
+              completionDate: new Date(editingProject.completionDate).toISOString().split('T')[0]
+            }} 
+            isEditing={true}
+            onClose={() => setEditingProject(null)} 
+          />
         </>
       )}
     </div>
