@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useProcure } from '../context/ProcureContext';
-import { Search, Plus, Trash2, Download, Briefcase, X, Edit2 } from 'lucide-react';
+import { Plus, Search, Trash2, Edit2, Download, X, FileText, Calendar, MapPin, Tag, Box, Hash, Briefcase } from 'lucide-react';
 import { getStatusClass } from '../utils/constants';
 
 const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = false }) => {
@@ -167,6 +167,7 @@ const Projects = () => {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showDrawer, setShowDrawer] = useState(false);
   const [editingProject, setEditingProject] = useState(null);
+  const [selectedProjectForDetails, setSelectedProjectForDetails] = useState(null);
   
   const getEditorName = (p) => {
     if (p.lastEditedById) {
@@ -192,7 +193,6 @@ const Projects = () => {
       );
     }
     
-    // Sort by newest first based on code for now
     result.sort((a, b) => b.projectCode.localeCompare(a.projectCode));
     return result;
   }, [state.projects, searchTerm]);
@@ -215,14 +215,6 @@ const Projects = () => {
       setSelectedIds(new Set());
       showToast(`${selectedIds.size} projects deleted`, 'success');
     }
-  };
-
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0
-    }).format(amount);
   };
 
   return (
@@ -293,8 +285,12 @@ const Projects = () => {
             </thead>
             <tbody>
               {projects.map(p => (
-                <tr key={p.id}>
-                  <td>
+                <tr key={p.id} onClick={(e) => {
+                  if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.closest('button')) {
+                    setSelectedProjectForDetails(p);
+                  }
+                }} style={{ cursor: 'pointer', transition: 'background 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.02)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+                  <td onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => handleSelect(p.id)} />
                   </td>
                   <td><strong>{p.projectCode}</strong></td>
@@ -333,7 +329,7 @@ const Projects = () => {
                     )}
                   </td>
                   {state.currentUser?.role !== 'viewer' && (
-                    <td>
+                    <td onClick={(e) => e.stopPropagation()}>
                       <div style={{ display: 'flex', gap: '0.5rem' }}>
                         <button onClick={() => setEditingProject(p)} className="btn-ghost" style={{ padding: '0.25rem' }} title="Edit">
                           <Edit2 size={16} />
@@ -345,7 +341,7 @@ const Projects = () => {
               ))}
               {projects.length === 0 && (
                 <tr>
-                  <td colSpan="8" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
+                  <td colSpan="9" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
                       <Briefcase size={48} color="var(--border-color)" />
                       <p>No projects found.</p>
@@ -378,6 +374,109 @@ const Projects = () => {
           />
         </>
       )}
+
+      {selectedProjectForDetails && (
+        <ProjectDetailsModal project={selectedProjectForDetails} onClose={() => setSelectedProjectForDetails(null)} />
+      )}
+    </div>
+  );
+};
+
+const ProjectDetailsModal = ({ project, onClose }) => {
+  const { state } = useProcure();
+  
+  const vendorInfo = useMemo(() => {
+    if (!state.vendors) return null;
+    const exactMatch = state.vendors.find(v => v.vendorName === project.client && v.plantName === project.projectName);
+    if (exactMatch) return exactMatch;
+    return state.vendors.find(v => v.vendorName === project.client);
+  }, [project, state.vendors]);
+
+  return (
+    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1000, padding: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }}>
+      <div className="modal-content glass-panel" onClick={e => e.stopPropagation()} style={{ maxWidth: '800px', width: '100%', borderRadius: '16px', overflow: 'hidden', padding: 0, border: '1px solid rgba(255,255,255,0.4)', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.1)' }}>
+        
+        <div style={{ padding: '2rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', background: 'linear-gradient(135deg, rgba(239,246,255,0.7), rgba(255,255,255,0.2))' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.75rem' }}>
+              <span className={`status-pill ${getStatusClass(project.status)}`}>{project.status}</span>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600, background: 'rgba(0,0,0,0.05)', padding: '0.2rem 0.6rem', borderRadius: '4px' }}><Hash size={12} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/>{project.projectCode}</span>
+            </div>
+            <h2 style={{ fontSize: '2rem', color: 'var(--text-primary)', marginBottom: '0.5rem', fontWeight: 700, letterSpacing: '-0.02em' }}>{project.projectName}</h2>
+            <p style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.75rem', fontWeight: 500 }}><Box size={16} className="text-accent" /> {project.capacity} {project.unit} &nbsp;•&nbsp; <Tag size={16} className="text-accent" /> {project.type}</p>
+          </div>
+          <button onClick={onClose} className="btn-ghost" style={{ padding: '0.5rem', borderRadius: '50%', background: 'var(--bg-primary)' }}>
+            <X size={20} />
+          </button>
+        </div>
+
+        <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem', background: 'var(--bg-primary)' }}>
+          
+          <div>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '1.25rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}><FileText size={18} className="text-accent" /> Vendor & Contract</h3>
+            <div style={{ background: 'var(--bg-secondary)', borderRadius: '12px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', border: '1px solid rgba(0,0,0,0.03)' }}>
+              <div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Vendor / Client</div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '1.05rem' }}>{project.client}</div>
+              </div>
+              {vendorInfo ? (
+                <>
+                  <div style={{ display: 'flex', gap: '2rem' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>PO Number</div>
+                      <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{vendorInfo.poNumber || '-'}</div>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>PR Number</div>
+                      <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{vendorInfo.prNumber || '-'}</div>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Contract Rate</div>
+                    <div style={{ fontWeight: 600, color: 'var(--accent-color)', fontSize: '1.1rem' }}>₹{vendorInfo.rate} <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>/ unit</span></div>
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic', padding: '1rem', background: 'rgba(0,0,0,0.02)', borderRadius: '8px' }}>No extended vendor/contract details found for this project in the system.</div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '1.25rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}><Calendar size={18} className="text-accent" /> Timeline & Location</h3>
+            <div style={{ background: 'var(--bg-secondary)', borderRadius: '12px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', border: '1px solid rgba(0,0,0,0.03)' }}>
+              
+              {vendorInfo ? (
+                <>
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Location</div>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '1.05rem' }}>
+                      <MapPin size={16} className="text-accent" style={{ opacity: 0.8 }} /> {vendorInfo.city || vendorInfo.state ? `${vendorInfo.city || ''}${vendorInfo.city && vendorInfo.state ? ', ' : ''}${vendorInfo.state || ''}` : 'Location not specified'} 
+                    </div>
+                    {vendorInfo.region && <div style={{ marginTop: '0.5rem' }}><span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', background: 'rgba(0,0,0,0.05)', borderRadius: '4px', fontWeight: 600, color: 'var(--text-secondary)' }}>{vendorInfo.region} Region</span></div>}
+                  </div>
+                  <div style={{ display: 'flex', gap: '2rem', marginTop: '0.5rem' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Contract Start</div>
+                      <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{vendorInfo.contractStart ? new Date(vendorInfo.contractStart).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}</div>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Contract End</div>
+                      <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{vendorInfo.contractEnd ? new Date(vendorInfo.contractEnd).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}</div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Target Completion</div>
+                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{project.completionDate ? new Date(project.completionDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}</div>
+                </div>
+              )}
+            </div>
+          </div>
+
+        </div>
+      </div>
     </div>
   );
 };
