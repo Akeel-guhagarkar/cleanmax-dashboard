@@ -985,7 +985,7 @@ const Vendors = ({ initialFilter = '' }) => {
           <p className="text-secondary" style={{ marginTop: '0.25rem' }}>Manage and oversee all vendor contracts.</p>
         </div>
         <div style={{ display: 'flex', gap: '1rem', width: '100%', overflowX: 'auto' }}>
-          <button onClick={() => setIsReportModalOpen(true)} className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, justifyContent: 'center' }}>
+          <button onClick={() => setIsReportModalOpen(true)} className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, justifyContent: 'center' }}>
             <Calendar size={18} /> Generate Report
           </button>
           {state.currentUser?.role !== 'viewer' && (
