@@ -11,7 +11,6 @@ const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = fals
     type: 'Solar',
     capacity: '',
     unit: 'MWp',
-    budget: '',
     status: 'Planning',
     completionDate: new Date().toISOString().split('T')[0],
   });
@@ -45,7 +44,6 @@ const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = fals
         payload: {
           ...formData,
           capacity: Number(formData.capacity),
-          budget: Number(formData.budget),
           editedByHistory: getUpdatedHistory(),
           lastEditedBy: state.currentUser?.name || 'Unknown',
           lastEditedById: state.currentUser?.id || null,
@@ -61,7 +59,6 @@ const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = fals
           ...formData,
           projectCode,
           capacity: Number(formData.capacity),
-          budget: Number(formData.budget),
           editedByHistory: [{ name: state.currentUser?.name || 'Unknown', time: new Date().toISOString() }],
           lastEditedBy: state.currentUser?.name || 'Unknown',
           lastEditedById: state.currentUser?.id || null,
@@ -137,12 +134,8 @@ const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = fals
           </div>
 
           <div>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent-color)' }}>Planning & Budget</h3>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent-color)' }}>Planning</h3>
             <div className="responsive-grid">
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Budget (INR) *</label>
-                <input required type="number" name="budget" className="premium-input project-modal-input" value={formData.budget} onChange={handleChange} />
-              </div>
               <div>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Target Completion Date *</label>
                 <input required type="date" name="completionDate" className="premium-input project-modal-input" value={formData.completionDate} onChange={handleChange} />
@@ -291,7 +284,6 @@ const Projects = () => {
                 <th>Vendor Name</th>
                 <th>Type</th>
                 <th>Capacity</th>
-                <th>Budget</th>
                 <th>Status</th>
                 <th>Last Edited By</th>
                 {state.currentUser?.role !== 'viewer' && (
@@ -310,7 +302,6 @@ const Projects = () => {
                   <td>{p.client}</td>
                   <td className="text-secondary">{p.type}</td>
                   <td style={{ fontWeight: 600 }}>{p.capacity} <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{p.unit}</span></td>
-                  <td style={{ fontWeight: 600 }}>{formatCurrency(p.budget)}</td>
                   <td>
                     <span className={`status-pill ${getStatusClass(p.status)}`}>
                       {p.status}

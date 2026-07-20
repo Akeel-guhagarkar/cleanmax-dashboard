@@ -229,6 +229,5 @@ export const SEED_PROJECTS = RAW_SEED_VENDORS.map((v, i) => ({
   unit: v.capacityUnit,
   status: calculateStatus(v.contractEnd) === 'Active' ? 'In Progress' : 'Planning',
   completionDate: v.contractStart,
-  budget: v.plantCapacity * 50000,
   createdAt: v.createdAt
 }));

@@ -228,7 +228,6 @@ const AddExcel = () => {
         unit: row.capacityUnit,
         status: (row.status || calculateStatus(row.contractEnd)) === 'Active' ? 'In Progress' : 'Completed',
         completionDate: row.contractStart,
-        budget: row.capacity * 50000,
       };
       batchProjects.push(projectPayload);
 
