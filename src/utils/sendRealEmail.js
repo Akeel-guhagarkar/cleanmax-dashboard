@@ -1,35 +1,34 @@
 // Real Physical Email Dispatcher Utility for CleanMax Procure360
-// Uses FormSubmit AJAX API & Web3Forms to send real physical emails directly to Gmail & Outlook inboxes
+// Sends real physical emails with attached Excel (.xlsx) files directly to Gmail & Outlook inboxes
 
-export const sendRealEmail = async ({ recipients, subject, body }) => {
+export const sendRealEmail = async ({ recipients, subject, body, excelBlob, filename }) => {
   const dispatchPromises = recipients.map(async (recipientEmail) => {
     try {
-      // 1. Primary: FormSubmit AJAX API (Delivers directly to recipient's email address)
-      const formSubmitUrl = `https://formsubmit.co/ajax/${encodeURIComponent(recipientEmail)}`;
-      const response = await fetch(formSubmitUrl, {
+      const formData = new FormData();
+      formData.append('_subject', subject);
+      formData.append('_captcha', 'false');
+      formData.append('message', body);
+
+      if (excelBlob) {
+        formData.append('attachment', excelBlob, filename || `CleanMax_Executive_Report_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      }
+
+      const response = await fetch(`https://formsubmit.co/ajax/${encodeURIComponent(recipientEmail)}`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        body: JSON.stringify({
-          _subject: subject,
-          _captcha: 'false',
-          sender: 'CleanMax Procure360 System',
-          report_date: new Date().toLocaleString('en-IN'),
-          recipients: recipients.join(', '),
-          message: body
-        })
+        body: formData
       });
 
       const data = await response.json();
-      console.log(`FormSubmit API Response for ${recipientEmail}:`, data);
+      console.log(`FormSubmit Attachment API Response for ${recipientEmail}:`, data);
 
       if (data.success === "true" || data.success === true || data.message?.toLowerCase().includes('success')) {
-        return { email: recipientEmail, success: true, message: 'Email sent via FormSubmit API' };
+        return { email: recipientEmail, success: true, message: 'Email sent with Excel attachment via FormSubmit' };
       }
 
-      // 2. Fallback: Web3Forms API
+      // Fallback: Web3Forms
       const w3Res = await fetch('https://api.web3forms.com/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -42,7 +41,7 @@ export const sendRealEmail = async ({ recipients, subject, body }) => {
         })
       });
       const w3Data = await w3Res.json();
-      return { email: recipientEmail, success: Boolean(w3Data.success), message: w3Data.message || 'Web3Forms response' };
+      return { email: recipientEmail, success: Boolean(w3Data.success) };
     } catch (err) {
       console.error(`Failed to send real email to ${recipientEmail}:`, err);
       return { email: recipientEmail, success: false, error: err.message };

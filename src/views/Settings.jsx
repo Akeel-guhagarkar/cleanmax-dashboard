@@ -1665,41 +1665,26 @@ const AutomatedReportScheduler = () => {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      // Send REAL physical emails live to inboxes via Web3Forms API & FormSubmit
-      const textMailBody = 
+      // Send REAL physical email with attached .xlsx Excel file
+      const shortMailBody = 
         `Dear CleanMax Leadership & Procurement Team,\n\n` +
-        `Greetings from CleanMax Energy Procure360 System.\n\n` +
-        `Please find below the automated executive summary digest and complete database metrics for your procurement portfolio:\n\n` +
-        `═══════════════════════════════════════════════════\n` +
-        `📊 EXECUTIVE PROCUREMENT PORTFOLIO SUMMARY\n` +
-        `═══════════════════════════════════════════════════\n` +
-        `• Report Date: ${new Date().toLocaleString('en-IN')}\n` +
+        `Please find attached the latest CleanMax Executive Procurement Report (.xlsx) for your review.\n\n` +
+        `📊 EXECUTIVE SUMMARY HIGHLIGHTS:\n` +
         `• Active Operational Vendors: ${state.vendors?.filter(v => (v.status || '').toLowerCase() === 'active').length || 0}\n` +
         `• Total Contracting Capacity: ${(state.vendors || []).reduce((sum, v) => sum + (Number(v.plantCapacity) || 0), 0).toFixed(2)} MW\n` +
         `• Contracts Expiring Soon (Within 30 Days): ${state.vendors?.filter(v => (v.status || '').toLowerCase() === 'expiring soon').length || 0}\n` +
-        `• Expired Contracts (Action Required): ${state.vendors?.filter(v => (v.status || '').toLowerCase() === 'expired').length || 0}\n` +
+        `• Expired PO/Contracts (Action Required): ${state.vendors?.filter(v => (v.status || '').toLowerCase() === 'expired').length || 0}\n` +
         `• Active Projects in Pipeline: ${state.projects?.length || 0}\n\n` +
-        `═══════════════════════════════════════════════════\n` +
-        `⚠️ ACTION REQUIRED: CONTRACT EXPIRIES & RENEWALS\n` +
-        `═══════════════════════════════════════════════════\n` +
-        `${(state.vendors || []).filter(v => ['expired', 'expiring soon'].includes((v.status || '').toLowerCase())).map(v => `• [${v.status?.toUpperCase()}] ${v.vendorName || 'Vendor'} (${v.plantName || 'Plant'}): ${v.plantCapacity || 0} MW @ ₹${v.rate || 0}/kWh | Contract End: ${v.contractEnd || 'N/A'}`).join('\n') || 'All vendor contracts are operational with no urgent expiries.'}\n\n` +
-        `═══════════════════════════════════════════════════\n` +
-        `📁 ATTACHED EXCEL WORKBOOK SUMMARY\n` +
-        `═══════════════════════════════════════════════════\n` +
-        `1. Sheet 1: 📊 Executive Summary KPI Metrics\n` +
-        `2. Sheet 2: 👥 Vendors Master Database (Active & Inactive)\n` +
-        `3. Sheet 3: 🏗️ Active Projects Pipeline\n` +
-        `4. Sheet 4: ⚠️ Renewals & PO Expiry Breakdown\n` +
-        `5. Sheet 5: 🗑️ Deleted Records Audit Logs\n\n` +
-        `📎 Downloaded Excel File: CleanMax_Automated_Report_${new Date().toISOString().slice(0, 10)}.xlsx\n\n` +
+        `📎 Attached Excel File: CleanMax_Executive_Report_${new Date().toISOString().slice(0, 10)}.xlsx\n\n` +
         `Warm Regards,\n` +
-        `CleanMax Energy Procure360 System\n` +
-        `Official Automated Executive Dispatch Engine`;
+        `CleanMax Energy Procure360 Executive System`;
 
       const emailResults = await sendRealEmail({
         recipients,
         subject: `CleanMax Procure360 Executive Report (${new Date().toLocaleDateString('en-IN')})`,
-        body: textMailBody,
+        body: shortMailBody,
+        excelBlob: blob,
+        filename: `CleanMax_Executive_Report_${new Date().toISOString().slice(0, 10)}.xlsx`,
       });
 
       const sentCount = emailResults.filter(r => r.success).length;
