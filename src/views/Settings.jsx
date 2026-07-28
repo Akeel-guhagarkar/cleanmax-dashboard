@@ -4,7 +4,7 @@ import { useProcure } from '../context/ProcureContext';
 import { verifyTOTP } from '../utils/totp';
 import { db } from '../firebase';
 import { doc, setDoc } from 'firebase/firestore';
-import { notifyMaintenanceMode, requestPushPermission } from '../utils/notify';
+import { notifyMaintenanceMode, requestPushPermission, sendNotification } from '../utils/notify';
 import { User, Moon, Sun, Bell, Shield, Database, Lock, Save, Camera, Smartphone, Globe, Key, Clock, AlertTriangle, CheckCircle, Trash2, RotateCcw, Package, Search, Copy, Eye, EyeOff, Plus, X, Zap, ShieldCheck, ChevronDown, ChevronUp, RotateCw, ZoomIn, ZoomOut, Maximize2, Check, Edit3, Download } from 'lucide-react';
 
 /* ═══════════════════════════════════════════════════
@@ -1664,19 +1664,38 @@ const AutomatedReportScheduler = () => {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      sendNotification(dispatch, {
-        title: '📧 Automated Email & Excel Dispatch Triggered',
-        message: `Excel attachment sent to ${recipients.join(', ')}`,
-        type: 'success',
-        targetRoles: ['admin', 'employee'],
-        existingNotifications: state.notifications,
-        dismissedKeys: state.dismissedAlerts,
-      });
+      // Open Email Draft for instant sending
+      const mailSubject = encodeURIComponent(`CleanMax Procure360 Executive Report - ${new Date().toLocaleDateString('en-IN')}`);
+      const mailBody = encodeURIComponent(
+        `CleanMax Procure360 Automated Report Dispatch\n` +
+        `---------------------------------------------\n` +
+        `Report Date: ${new Date().toLocaleString('en-IN')}\n` +
+        `Recipients: ${recipients.join(', ')}\n\n` +
+        `Active Vendors: ${state.vendors?.filter(v => (v.status || '').toLowerCase() === 'active').length || 0}\n` +
+        `Total Contracting Capacity: ${(state.vendors || []).reduce((sum, v) => sum + (Number(v.plantCapacity) || 0), 0).toFixed(2)} MW\n` +
+        `Expiring Soon (30d): ${state.vendors?.filter(v => (v.status || '').toLowerCase() === 'expiring soon').length || 0}\n` +
+        `Expired Contracts: ${state.vendors?.filter(v => (v.status || '').toLowerCase() === 'expired').length || 0}\n\n` +
+        `Attached File: CleanMax_Automated_Report_${new Date().toISOString().slice(0, 10)}.xlsx\n\n` +
+        `(Generated automatically by CleanMax Procure360 System)`
+      );
 
-      showToast(`✅ Excel attachment & Email dispatched to ${recipients.length} recipients!`, 'success');
+      window.open(`mailto:${recipients.join(',')}?subject=${mailSubject}&body=${mailBody}`, '_blank');
+
+      if (typeof sendNotification === 'function') {
+        sendNotification(dispatch, {
+          title: '📧 Automated Email & Excel Dispatch Triggered',
+          message: `Excel report generated & emailed to ${recipients.join(', ')}`,
+          type: 'success',
+          targetRoles: ['admin', 'employee'],
+          existingNotifications: state.notifications || [],
+          dismissedKeys: state.dismissedAlerts || [],
+        });
+      }
+
+      showToast(`✅ Excel report downloaded & Email client opened for ${recipients.length} recipients!`, 'success');
     } catch (e) {
       console.error(e);
-      showToast('❌ Automation dispatch error', 'error');
+      showToast('❌ Automation dispatch error: ' + (e.message || 'Check inputs'), 'error');
     } finally {
       setDispatching(false);
     }
