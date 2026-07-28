@@ -1231,8 +1231,145 @@ ${expiredVendors.map(v => `- ❌ ${v.vendorName || 'Vendor'} (${v.plantName || '
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handleDownloadPDF = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      showToast('❌ Popup blocked! Please allow popups to generate PDF.', 'warning');
+      return;
+    }
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>CleanMax_Weekly_Executive_Digest_${new Date().toISOString().slice(0, 10)}</title>
+        <style>
+          @page { size: A4 portrait; margin: 12mm; }
+          body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; margin: 0; padding: 15px; background: #fff; line-height: 1.4; }
+          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #10b981; padding-bottom: 10px; margin-bottom: 15px; }
+          .logo { font-size: 20px; font-weight: 800; color: #10b981; text-transform: uppercase; letter-spacing: 0.5px; }
+          .subtitle { font-size: 11px; color: #64748b; margin-top: 2px; }
+          .badge { background: #ecfdf5; color: #047857; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; border: 1px solid #a7f3d0; }
+          .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+          .card { background: #f8fafc; border: 1px solid #cbd5e1; padding: 10px; border-radius: 8px; text-align: center; }
+          .card-title { font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: 700; }
+          .card-value { font-size: 18px; font-weight: 800; margin-top: 3px; }
+          .section-title { font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 8px; border-left: 4px solid #10b981; padding-left: 8px; text-transform: uppercase; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 11px; }
+          th { background: #1e293b; color: #ffffff; padding: 7px 8px; text-align: left; font-size: 10px; font-weight: 700; border: 1px solid #334155; }
+          td { padding: 6px 8px; border: 1px solid #e2e8f0; }
+          tr:nth-child(even) { background: #f8fafc; }
+          .status-expired { background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 9px; display: inline-block; }
+          .status-expiring { background: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 9px; display: inline-block; }
+          .footer { font-size: 9px; color: #94a3b8; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 8px; margin-top: 20px; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <div class="logo">CleanMax Procure360</div>
+            <div class="subtitle">Executive Weekly Summary Digest</div>
+          </div>
+          <div>
+            <span class="badge">Report Period: ${weekStartStr} – ${dateStr}</span>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="card">
+            <div class="card-title">Active Vendors</div>
+            <div class="card-value" style="color: #10b981;">${activeVendors.length}</div>
+          </div>
+          <div class="card">
+            <div class="card-title">Total Capacity</div>
+            <div class="card-value" style="color: #6366f1;">${totalMW.toFixed(1)} MW</div>
+          </div>
+          <div class="card">
+            <div class="card-title">Expiring (30d)</div>
+            <div class="card-value" style="color: #f59e0b;">${expiringVendors.length}</div>
+          </div>
+          <div class="card">
+            <div class="card-title">Expired Contracts</div>
+            <div class="card-value" style="color: #ef4444;">${expiredVendors.length}</div>
+          </div>
+        </div>
+
+        <div class="section-title">Contract Expiry & Renewal Action List</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Vendor Code</th>
+              <th>Vendor Name</th>
+              <th>Plant Name</th>
+              <th style="text-align: right;">Capacity (MW)</th>
+              <th style="text-align: right;">Rate (₹/kWh)</th>
+              <th style="text-align: center;">Contract End</th>
+              <th style="text-align: center;">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${actionList.length === 0 ? `
+              <tr><td colSpan="7" style="text-align: center; padding: 12px; color: #64748b;">No expiring or expired contracts this week. All vendor contracts operational!</td></tr>
+            ` : actionList.map(v => `
+              <tr>
+                <td><strong>${v.vendorCode || '-'}</strong></td>
+                <td>${v.vendorName || '-'}</td>
+                <td>${v.plantName || '-'}</td>
+                <td style="text-align: right;">${Number(v.plantCapacity || 0).toFixed(2)}</td>
+                <td style="text-align: right;">${Number(v.rate || 0).toFixed(2)}</td>
+                <td style="text-align: center;">${v.contractEnd || '-'}</td>
+                <td style="text-align: center;">
+                  <span class="${(v.status || '').toLowerCase().includes('expired') ? 'status-expired' : 'status-expiring'}">
+                    ${v.status}
+                  </span>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+
+        <div class="section-title">Active Projects Overview</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Project Code</th>
+              <th>Project Name</th>
+              <th>State</th>
+              <th style="text-align: right;">Capacity (MW)</th>
+              <th style="text-align: center;">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${projects.slice(0, 10).map(p => `
+              <tr>
+                <td><strong>${p.projectCode || '-'}</strong></td>
+                <td>${p.projectName || '-'}</td>
+                <td>${p.state || '-'}</td>
+                <td style="text-align: right;">${Number(p.capacityMW || 0).toFixed(2)}</td>
+                <td style="text-align: center;">${p.status || 'Active'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+
+        <div class="footer">
+          CleanMax Energy Procure360 System | Generated on ${new Date().toLocaleString('en-IN')} | Confidential Executive Document
+        </div>
+
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.print();
+            }, 300);
+          };
+        </script>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
   };
 
   return (
@@ -1377,8 +1514,8 @@ ${expiredVendors.map(v => `- ❌ ${v.vendorName || 'Vendor'} (${v.plantName || '
             {copied ? <Check size={16} color="#10b981" /> : <Copy size={16} />} {copied ? 'Copy Text' : 'Copy Text'}
           </button>
           
-          <button onClick={handlePrint} className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.45rem 0.9rem', fontSize: '0.85rem' }}>
-            <Download size={16} /> Print / PDF
+          <button onClick={handleDownloadPDF} className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.45rem 0.9rem', fontSize: '0.85rem' }}>
+            <Download size={16} /> Print / Export PDF
           </button>
           
           <button onClick={onClose} className="btn-premium" style={{ padding: '0.45rem 1.2rem', fontSize: '0.85rem' }}>
