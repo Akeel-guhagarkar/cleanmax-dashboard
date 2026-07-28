@@ -1665,26 +1665,31 @@ const AutomatedReportScheduler = () => {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      // Send REAL physical email with attached .xlsx Excel file
-      const shortMailBody = 
-        `Dear CleanMax Leadership & Procurement Team,\n\n` +
-        `Please find attached the latest CleanMax Executive Procurement Report (.xlsx) for your review.\n\n` +
-        `📊 EXECUTIVE SUMMARY HIGHLIGHTS:\n` +
-        `• Active Operational Vendors: ${state.vendors?.filter(v => (v.status || '').toLowerCase() === 'active').length || 0}\n` +
-        `• Total Contracting Capacity: ${(state.vendors || []).reduce((sum, v) => sum + (Number(v.plantCapacity) || 0), 0).toFixed(2)} MW\n` +
-        `• Contracts Expiring Soon (Within 30 Days): ${state.vendors?.filter(v => (v.status || '').toLowerCase() === 'expiring soon').length || 0}\n` +
-        `• Expired PO/Contracts (Action Required): ${state.vendors?.filter(v => (v.status || '').toLowerCase() === 'expired').length || 0}\n` +
-        `• Active Projects in Pipeline: ${state.projects?.length || 0}\n\n` +
-        `📎 Attached Excel File: CleanMax_Executive_Report_${new Date().toISOString().slice(0, 10)}.xlsx\n\n` +
-        `Warm Regards,\n` +
-        `CleanMax Energy Procure360 Executive System`;
+      const activeCount = state.vendors?.filter(v => (v.status || '').toLowerCase() === 'active').length || 0;
+      const totalMW = (state.vendors || []).reduce((sum, v) => sum + (Number(v.plantCapacity) || 0), 0).toFixed(2);
+      const expiringCount = state.vendors?.filter(v => (v.status || '').toLowerCase() === 'expiring soon').length || 0;
+      const expiredCount = state.vendors?.filter(v => (v.status || '').toLowerCase() === 'expired').length || 0;
+      const projectsCount = state.projects?.length || 0;
+
+      const cleanTextBody = 
+        `Dear CleanMax Leadership & Management Team,\n\n` +
+        `Greetings from CleanMax Energy Procure360 Executive Platform.\n\n` +
+        `Please review the automated executive summary report for CleanMax procurement operations:\n\n` +
+        `📊 EXECUTIVE KPI HIGHLIGHTS:\n` +
+        `• Active Operational Vendors: ${activeCount}\n` +
+        `• Total Contracting Capacity: ${totalMW} MW\n` +
+        `• Contracts Expiring Soon (30 Days): ${expiringCount}\n` +
+        `• Expired PO/Contracts (Action Required): ${expiredCount}\n` +
+        `• Active Projects in Pipeline: ${projectsCount}\n\n` +
+        `📥 Excel Workbook File Downloaded: CleanMax_Executive_Report_${new Date().toISOString().slice(0, 10)}.xlsx\n` +
+        `🔗 Open Live Executive Dashboard: https://akeel-guhagarkar.github.io/cleanmax-dashboard/\n\n` +
+        `Best Regards,\n` +
+        `CleanMax Energy Procure360 System`;
 
       const emailResults = await sendRealEmail({
         recipients,
-        subject: `CleanMax Procure360 Executive Report (${new Date().toLocaleDateString('en-IN')})`,
-        body: shortMailBody,
-        excelBlob: blob,
-        filename: `CleanMax_Executive_Report_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        subject: `CleanMax Executive Procurement Report - ${new Date().toLocaleDateString('en-IN')}`,
+        textFallback: cleanTextBody,
       });
 
       const sentCount = emailResults.filter(r => r.success).length;
