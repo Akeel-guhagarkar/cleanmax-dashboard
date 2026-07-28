@@ -93,6 +93,22 @@ export const playNotificationSound = () => {
 };
 
 // ─────────────────────────────────────────────
+// TIME KEY UTILITIES (Weekly / Monthly Frequencies)
+// ─────────────────────────────────────────────
+export const getISOWeekKey = (d = new Date()) => {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+  return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+};
+
+export const getMonthKey = (d = new Date()) => {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
+
+// ─────────────────────────────────────────────
 // CORE: Send any notification to Firestore
 // targetRoles: ['admin'] | ['admin','employee'] | ['admin','employee','viewer']
 // ─────────────────────────────────────────────
@@ -101,16 +117,17 @@ export const sendNotification = (dispatch, {
   message,
   type = 'info',
   targetRoles = ['admin'],
-  dedupeKey = null,   // if provided, prevents duplicate notifications with same key
+  dedupeKey = null,   // if provided, prevents duplicate notifications across ALL devices
   actorName = null,
   playSound = true,
+  existingNotifications = [],
+  dismissedKeys = [],
 }) => {
-  // Dedupe: if same notification key already fired today, skip
+  // Dedupe: check if notification with same key exists in Firestore store or was dismissed
   if (dedupeKey) {
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    const lsKey = `notif_${dedupeKey}_${today}`;
-    if (localStorage.getItem(lsKey)) return;
-    localStorage.setItem(lsKey, '1');
+    const isAlreadyInStore = (existingNotifications || []).some(n => n.dedupeKey === dedupeKey);
+    const isDismissed = (dismissedKeys || []).includes(dedupeKey);
+    if (isAlreadyInStore || isDismissed) return;
   }
 
   // Play standard notification audio sound locally
@@ -122,6 +139,7 @@ export const sendNotification = (dispatch, {
     type: 'ADD_NOTIFICATION',
     payload: {
       id: uuidv4(),
+      dedupeKey,
       title,
       message: actorName ? `${message} — by ${actorName}` : message,
       type,
@@ -150,9 +168,21 @@ export const notifyMaintenanceMode = (dispatch, { isModeOn, actorName }) => {
 
 // ─────────────────────────────────────────────
 // 2. CONTRACT / PO EXPIRY ALERTS
+// Frequency Rules:
+// - Expired: ONCE PER WEEK (e.g. 2026-W30)
+// - 7 Days: ONCE PER WEEK
+// - 30 Days (Expiring Soon): ONCE PER MONTH (e.g. 2026-07)
 // ─────────────────────────────────────────────
-export const checkContractAlerts = (dispatch, vendors) => {
+export const checkContractAlerts = (dispatch, vendors, existingNotifications = [], dismissedKeys = []) => {
+  if (!vendors || vendors.length === 0) return;
   const now = new Date();
+  const weekKey = getISOWeekKey(now);
+  const monthKey = getMonthKey(now);
+
+  const activeDedupeKeys = new Set([
+    ...((existingNotifications || []).map(n => n.dedupeKey).filter(Boolean)),
+    ...((dismissedKeys || []))
+  ]);
 
   (vendors || []).forEach(v => {
     if (!v || !v.contractEnd || !v.id) return;
@@ -167,39 +197,54 @@ export const checkContractAlerts = (dispatch, vendors) => {
 
     const formattedDate = safeFormatDate(v.contractEnd, { day: 'numeric', month: 'short', year: 'numeric' });
 
-    // ── Already Expired ──
+    // ── 1. Already Expired: WEEKLY Alert (once per week) ──
     if (daysLeft < 0) {
-      sendNotification(dispatch, {
-        title: '❌ PO / Contract Expired',
-        message: `${label} contract expired on ${formattedDate}. Immediate renewal required.`,
-        type: 'error',
-        targetRoles: ['admin', 'employee'],
-        dedupeKey: `expired_${v.id}_${v.contractEnd}`,
-      });
+      const dedupeKey = `expired_${v.id}_${weekKey}`;
+      if (!activeDedupeKeys.has(dedupeKey)) {
+        sendNotification(dispatch, {
+          title: '❌ PO / Contract Expired',
+          message: `${label} contract expired on ${formattedDate}. Immediate renewal required.`,
+          type: 'error',
+          targetRoles: ['admin', 'employee'],
+          dedupeKey,
+          existingNotifications,
+          dismissedKeys,
+        });
+      }
       return;
     }
 
-    // ── 7 Days Critical Warning ──
+    // ── 2. 7 Days Critical Warning: WEEKLY Alert (once per week) ──
     if (daysLeft <= 7) {
-      sendNotification(dispatch, {
-        title: '🚨 PO Expiring in 7 Days!',
-        message: `${label} PO expires on ${formattedDate} — only ${daysLeft} day(s) left. Renew urgently!`,
-        type: 'error',
-        targetRoles: ['admin', 'employee'],
-        dedupeKey: `expiry7_${v.id}_${v.contractEnd}`,
-      });
+      const dedupeKey = `expiry7_${v.id}_${weekKey}`;
+      if (!activeDedupeKeys.has(dedupeKey)) {
+        sendNotification(dispatch, {
+          title: '🚨 PO Expiring in 7 Days!',
+          message: `${label} PO expires on ${formattedDate} — only ${daysLeft} day(s) left. Renew urgently!`,
+          type: 'error',
+          targetRoles: ['admin', 'employee'],
+          dedupeKey,
+          existingNotifications,
+          dismissedKeys,
+        });
+      }
       return;
     }
 
-    // ── 30 Days Warning ──
+    // ── 3. 30 Days Warning (Expiring Soon - 1 month before): MONTHLY Alert (once per month) ──
     if (daysLeft <= 30) {
-      sendNotification(dispatch, {
-        title: '⚠️ PO Expiring in 30 Days',
-        message: `${label} PO expires on ${formattedDate} (${daysLeft} days remaining). Please initiate renewal process.`,
-        type: 'warning',
-        targetRoles: ['admin', 'employee'],
-        dedupeKey: `expiry30_${v.id}_${v.contractEnd}`,
-      });
+      const dedupeKey = `expiry30_${v.id}_${monthKey}`;
+      if (!activeDedupeKeys.has(dedupeKey)) {
+        sendNotification(dispatch, {
+          title: '⚠️ PO Expiring in 30 Days',
+          message: `${label} PO expires on ${formattedDate} (${daysLeft} days remaining). Please initiate renewal process.`,
+          type: 'warning',
+          targetRoles: ['admin', 'employee'],
+          dedupeKey,
+          existingNotifications,
+          dismissedKeys,
+        });
+      }
     }
   });
 };

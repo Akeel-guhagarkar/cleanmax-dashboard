@@ -20,6 +20,7 @@ const getInitialState = () => {
     isDarkMode: savedDarkMode === 'true',
     toasts: [],
     notifications: [],
+    dismissedAlerts: [],
     uploadHistory: [],
     deletedRecords: [],
     isMaintenanceMode: localStorage.getItem('cleanmax_maintenance') === 'true',
@@ -351,24 +352,16 @@ export const ProcureProvider = ({ children }) => {
           const addedChanges = snapshot.docChanges().filter(c => c.type === 'added');
           if (addedChanges.length > 0) {
             playNotificationSound();
-            addedChanges.forEach(change => {
-              const data = change.doc.data() || {};
-              if (data.title) {
-                dispatch({
-                  type: 'ADD_TOAST',
-                  payload: {
-                    message: `${data.title}: ${data.message || ''}`,
-                    type: data.type || 'info'
-                  }
-                });
-              }
-            });
           }
         }
         isFirstNotifSync = false;
 
         dispatch({ type: 'SYNC_COLLECTION', payload: { key: 'notifications', data: notifs } });
         setIsInitializing(false);
+      });
+      unsubDismissed = onSnapshot(collection(db, 'dismissedAlerts'), (snapshot) => {
+        const keys = snapshot.docs.map(doc => doc.id);
+        dispatch({ type: 'SYNC_COLLECTION', payload: { key: 'dismissedAlerts', data: keys } });
       });
       unsubDeleted = onSnapshot(collection(db, 'deletedRecords'), (snapshot) => {
         const deleted = snapshot.docs
@@ -396,6 +389,7 @@ export const ProcureProvider = ({ children }) => {
       if (unsubProjects) unsubProjects();
       if (unsubUsers) unsubUsers();
       if (unsubNotifications) unsubNotifications();
+      if (unsubDismissed) unsubDismissed();
       if (unsubHistory) unsubHistory();
       if (unsubDeleted) unsubDeleted();
       if (unsubSettings) unsubSettings();
@@ -566,6 +560,10 @@ export const ProcureProvider = ({ children }) => {
         }
         case 'DELETE_NOTIFICATION': {
           if (action.payload.notificationId) {
+            const notif = state.notifications.find(n => n.id === action.payload.notificationId);
+            if (notif && notif.dedupeKey) {
+              await setDoc(doc(db, 'dismissedAlerts', notif.dedupeKey), { timestamp: new Date().toISOString() }, { merge: true });
+            }
             await deleteDoc(doc(db, 'notifications', action.payload.notificationId));
           }
           break;
@@ -575,6 +573,9 @@ export const ProcureProvider = ({ children }) => {
           let countC = 0;
           state.notifications.forEach(n => {
             if (!n.targetRoles || n.targetRoles.includes(action.payload.role)) {
+              if (n.dedupeKey) {
+                batchC.set(doc(db, 'dismissedAlerts', n.dedupeKey), { timestamp: new Date().toISOString() }, { merge: true });
+              }
               batchC.delete(doc(db, 'notifications', n.id));
               countC++;
             }

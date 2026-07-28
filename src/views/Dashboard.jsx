@@ -46,12 +46,12 @@ const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
 
-  // ðŸ”” Auto-check contract expiry alerts once per day on load
+  // 🔔 Auto-check contract expiry alerts once per day on load
   useEffect(() => {
     if (state.vendors && state.vendors.length > 0) {
-      checkContractAlerts(dispatch, state.vendors);
+      checkContractAlerts(dispatch, state.vendors, state.notifications, state.dismissedAlerts);
     }
-  }, [state.vendors.length]);
+  }, [state.vendors.length, (state.notifications || []).length, (state.dismissedAlerts || []).length]);
   
   const metrics = useMemo(() => {
     const uniqueVendors = new Set((state.vendors || []).map(v => v.vendorCode).filter(Boolean));
