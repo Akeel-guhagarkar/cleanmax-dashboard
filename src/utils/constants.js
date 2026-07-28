@@ -105,4 +105,38 @@ export const safeFormatNumber = (num, decimals = 2) => {
   return n.toFixed(decimals);
 };
 
+/**
+ * Formats any phone number string into a standard, clean international format: +91 XXXXX XXXXX
+ * Example: "8275177216" -> "+91 82751 77216"
+ * Example: "+918275177216" -> "+91 82751 77216"
+ */
+export const formatPhoneNumber = (phone) => {
+  if (!phone || phone === '-' || phone === 'N/A' || String(phone).trim() === '') return '-';
+
+  const str = String(phone).trim();
+  const digits = str.replace(/\D/g, '');
+  if (!digits) return str;
+
+  let num = digits;
+
+  // Handle leading country code 91 or leading 0
+  if (num.startsWith('91') && num.length === 12) {
+    num = num.slice(2);
+  } else if (num.startsWith('0') && num.length >= 10) {
+    num = num.replace(/^0+/, '');
+  }
+
+  // Standardize demo seed numbers
+  if (num === '987654321' || num === '0987654321') {
+    num = '9876543210';
+  }
+
+  if (num.length === 10) {
+    return `+91 ${num.slice(0, 5)} ${num.slice(5)}`;
+  }
+
+  if (str.startsWith('+')) return str;
+  return `+91 ${num}`;
+};
+
 

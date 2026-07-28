@@ -284,7 +284,7 @@ export const ProcureProvider = ({ children }) => {
 
   // Initialize data from Firestore Collections
   useEffect(() => {
-    let unsubVendors, unsubProjects, unsubUsers, unsubNotifications, unsubHistory, unsubDeleted, unsubSettings;
+    let unsubVendors, unsubProjects, unsubUsers, unsubNotifications, unsubDismissed, unsubHistory, unsubDeleted, unsubSettings;
     
     try {
       unsubVendors = onSnapshot(collection(db, 'vendors'), (snapshot) => {
@@ -322,9 +322,16 @@ export const ProcureProvider = ({ children }) => {
         dispatch({ type: 'SYNC_COLLECTION', payload: { key: 'projects', data: projects } });
       });
       unsubUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-        const users = snapshot.docs.map(doc => {
-          const data = doc.data() || {};
-          return { ...data, id: data.id || doc.id };
+        const users = snapshot.docs.map(docSnap => {
+          const data = docSnap.data() || {};
+          const id = data.id || docSnap.id;
+          const rawEmail = data.email || '';
+          if (rawEmail.toLowerCase().endsWith('@cleanmax.energy')) {
+            const newEmail = rawEmail.replace(/@cleanmax\.energy$/i, '@cleanmax.com');
+            setDoc(doc(db, 'users', id), { email: newEmail }, { merge: true }).catch(() => {});
+            return { ...data, id, email: newEmail };
+          }
+          return { ...data, id };
         });
         dispatch({ type: 'SYNC_COLLECTION', payload: { key: 'users', data: users } });
         

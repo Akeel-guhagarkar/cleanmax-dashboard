@@ -167,7 +167,7 @@ const Login = ({ onLogin }) => {
                       <input 
                         type="email" 
                         className="enterprise-input" 
-                        placeholder="user@cleanmax.energy"
+                        placeholder="user@cleanmax.com"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         required

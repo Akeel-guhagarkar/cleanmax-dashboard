@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { useProcure } from '../context/ProcureContext';
-import { Search, Plus, Trash2, X, Shield, Copy, Check } from 'lucide-react';
+import { Search, Plus, Trash2, X, Shield, Copy, Check, Edit } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { sendNotification } from '../utils/notify';
+import { formatPhoneNumber } from '../utils/constants';
 
 const generatePassword = () => {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
@@ -11,6 +12,116 @@ const generatePassword = () => {
     password += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return password;
+};
+
+const EditUserModal = ({ user, onClose }) => {
+  const { state, dispatch, showToast } = useProcure();
+  const [formData, setFormData] = useState({
+    name: user.name || '',
+    email: user.email || '',
+    password: user.password || '',
+    phone: user.phone || '',
+    role: user.role || 'employee',
+  });
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!formData.name.trim() && formData.role !== 'viewer') {
+      showToast('Name is required', 'error');
+      return;
+    }
+    if (!formData.email.trim()) {
+      showToast('Corporate Email is required', 'error');
+      return;
+    }
+
+    const updatedUser = {
+      id: user.id,
+      name: formData.role === 'viewer' ? (formData.name || 'Viewer') : formData.name,
+      email: formData.email.trim().toLowerCase(),
+      password: formData.password.trim(),
+      phone: formData.role === 'viewer' ? '-' : formData.phone,
+      role: formData.role,
+    };
+
+    dispatch({ type: 'UPDATE_USER', payload: updatedUser });
+    showToast('User profile updated successfully', 'success');
+    sendNotification(dispatch, {
+      title: '👤 User Profile Updated',
+      message: `User details for ${updatedUser.name} (${updatedUser.email}) updated by ${state.currentUser?.name || 'Admin'}`,
+      type: 'info',
+      targetRoles: ['admin'],
+    });
+    onClose();
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <style>{`
+        .employee-modal-input {
+          background-color: #ffffff !important;
+          color: #111827 !important;
+          border-color: rgba(0, 0, 0, 0.1) !important;
+        }
+        .employee-modal-input:focus {
+          border-color: var(--accent-color) !important;
+        }
+      `}</style>
+      <div className="glass-panel animate-fade-in-up" style={{ width: '90%', maxWidth: '500px', padding: '2.5rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+          <h2 style={{ fontSize: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <Edit size={22} color="var(--accent-color)" /> Edit User
+          </h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}>
+            <X size={24} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          <div className="responsive-grid">
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Name *</label>
+              <input required type="text" name="name" className="premium-input employee-modal-input" value={formData.name} onChange={handleChange} />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Phone Number</label>
+              <input type="text" name="phone" className="premium-input employee-modal-input" placeholder="+91..." value={formData.phone} onChange={handleChange} />
+            </div>
+          </div>
+
+          <div className="responsive-grid">
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Corporate Email *</label>
+              <input required type="email" name="email" className="premium-input employee-modal-input" value={formData.email} onChange={handleChange} />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Password *</label>
+              <input required type="text" name="password" className="premium-input employee-modal-input" value={formData.password} onChange={handleChange} />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Role</label>
+            <select name="role" className="premium-input employee-modal-input" value={formData.role} onChange={handleChange} style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '12px', border: '1px solid rgba(0,0,0,0.1)' }}>
+              <option value="admin">Admin</option>
+              <option value="employee">Employee</option>
+              <option value="viewer">Viewer</option>
+            </select>
+          </div>
+
+          <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem' }}>
+            <button type="button" onClick={onClose} className="btn-ghost" style={{ flex: 1 }}>Cancel</button>
+            <button type="submit" className="btn-premium" style={{ flex: 1 }}>Save Changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 };
 
 const EmployeeRegistrationForm = ({ onClose }) => {
@@ -46,7 +157,7 @@ const EmployeeRegistrationForm = ({ onClose }) => {
     }
 
     const baseName = formData.name ? formData.name.toLowerCase().replace(/[^a-z0-9]/g, '.') : `viewer.${Math.floor(Math.random() * 10000)}`;
-    const email = (formData.email || `${baseName}@cleanmax.energy`).trim().toLowerCase();
+    const email = (formData.email || `${baseName}@cleanmax.com`).trim().toLowerCase();
     const password = (formData.password || generatePassword()).trim();
     
     const finalName = formData.role === 'viewer' ? 'Viewer' : formData.name;
@@ -157,6 +268,7 @@ const Employees = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showDrawer, setShowDrawer] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
   const [regeneratedCredentials, setRegeneratedCredentials] = useState(null);
 
   const employees = useMemo(() => {
@@ -219,7 +331,7 @@ const Employees = () => {
         payload: { id: user.id, password: newPassword } 
       });
       sendNotification(dispatch, {
-        title: 'ðŸ”‘ Password Reset',
+        title: '🔑 Password Reset',
         message: `Password was reset for ${user.name} (${user.email})`,
         type: 'warning',
         targetRoles: ['admin'],
@@ -296,7 +408,7 @@ const Employees = () => {
                   <td style={{ fontWeight: 600 }}>{u.name || 'Unnamed User'}</td>
                   <td>{u.email || 'No email'}</td>
                   <td style={{ fontFamily: 'monospace', color: 'var(--text-secondary)' }}>{u.password || '-'}</td>
-                  <td>{u.phone || '-'}</td>
+                  <td>{formatPhoneNumber(u.phone)}</td>
                   <td>
                     <span className="status-pill status-active" style={{ background: 'var(--bg-app)', color: 'var(--accent-color)', border: '1px solid var(--accent-color)' }}>
                       <Shield size={12} style={{ marginRight: 4 }} />
@@ -305,9 +417,24 @@ const Employees = () => {
                   </td>
                   <td className="text-secondary">{u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '-'}</td>
                   <td>
-                    <button onClick={() => handleRegeneratePassword(u)} className="btn-ghost" style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem', whiteSpace: 'nowrap', border: '1px solid var(--border-color)' }}>
-                      Reset Password
-                    </button>
+                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                      <button 
+                        onClick={() => setEditingUser(u)} 
+                        className="btn-ghost" 
+                        style={{ padding: '0.25rem 0.65rem', fontSize: '0.8rem', whiteSpace: 'nowrap', border: '1px solid var(--accent-color)', color: 'var(--accent-color)', display: 'flex', alignItems: 'center', gap: '0.3rem', borderRadius: '8px' }}
+                        title="Edit user details"
+                      >
+                        <Edit size={13} /> Edit
+                      </button>
+                      <button 
+                        onClick={() => handleRegeneratePassword(u)} 
+                        className="btn-ghost" 
+                        style={{ padding: '0.25rem 0.65rem', fontSize: '0.8rem', whiteSpace: 'nowrap', border: '1px solid var(--border-color)', borderRadius: '8px' }}
+                        title="Reset user password"
+                      >
+                        Reset Password
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -316,7 +443,7 @@ const Employees = () => {
                   <td colSpan="8" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
                       <Shield size={48} color="var(--border-color)" />
-                      <p>No employees found. Click "Add Employee" to grant access.</p>
+                      <p>No employees found. Click "Add User" to grant access.</p>
                     </div>
                   </td>
                 </tr>
@@ -328,6 +455,10 @@ const Employees = () => {
 
       {showDrawer && (
         <EmployeeRegistrationForm onClose={() => setShowDrawer(false)} />
+      )}
+
+      {editingUser && (
+        <EditUserModal user={editingUser} onClose={() => setEditingUser(null)} />
       )}
 
       {regeneratedCredentials && (

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useProcure } from '../context/ProcureContext';
+import { formatPhoneNumber } from '../utils/constants';
 import { 
   LayoutDashboard, 
   Users, 
@@ -81,7 +82,7 @@ const ProfileModal = ({ user, onClose }) => {
             {!isViewer && (
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Phone</span>
-                <span style={{ fontWeight: 500 }}>{user.phone}</span>
+                <span style={{ fontWeight: 500 }}>{formatPhoneNumber(user.phone)}</span>
               </div>
             )}
           </div>

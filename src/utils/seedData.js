@@ -27,7 +27,7 @@ export const SEED_USERS = [
   {
     id: 'user-admin-seed-1',
     name: 'System Admin',
-    email: 'admin@cleanmax.energy',
+    email: 'admin@cleanmax.com',
     password: 'admin',
     phone: '1234567890',
     role: 'admin',
@@ -39,7 +39,7 @@ export const SEED_USERS = [
   {
     id: 'user-viewer-seed-2',
     name: 'Viewer User',
-    email: 'viewer@cleanmax.energy',
+    email: 'viewer@cleanmax.com',
     password: 'viewer',
     phone: '0987654321',
     role: 'viewer',
