@@ -109,6 +109,43 @@ export const getMonthKey = (d = new Date()) => {
 };
 
 // ─────────────────────────────────────────────
+// BROWSER PUSH NOTIFICATIONS ENGINE
+// ─────────────────────────────────────────────
+export const requestPushPermission = async () => {
+  if (typeof window === 'undefined' || !('Notification' in window)) {
+    return { granted: false, error: 'Web Notifications are not supported in this browser environment.' };
+  }
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      new Notification('🔔 Push Notifications Activated', {
+        body: 'CleanMax Dashboard real-time push alerts are now active for your browser!',
+        icon: '/favicon.ico'
+      });
+      return { granted: true };
+    }
+    return { granted: false, error: 'Browser notification permission was declined.' };
+  } catch (e) {
+    return { granted: false, error: e.message };
+  }
+};
+
+export const triggerBrowserPushNotification = (title, message) => {
+  try {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'granted') {
+        new Notification(title, {
+          body: message,
+          icon: '/favicon.ico',
+        });
+      }
+    }
+  } catch (e) {
+    console.warn("Push notification dispatch error:", e);
+  }
+};
+
+// ─────────────────────────────────────────────
 // CORE: Send any notification to Firestore
 // targetRoles: ['admin'] | ['admin','employee'] | ['admin','employee','viewer']
 // ─────────────────────────────────────────────
@@ -134,6 +171,9 @@ export const sendNotification = (dispatch, {
   if (playSound) {
     playNotificationSound();
   }
+
+  // Trigger Web Desktop Push Notification
+  triggerBrowserPushNotification(title, message);
 
   dispatch({
     type: 'ADD_NOTIFICATION',

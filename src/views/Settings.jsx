@@ -4,7 +4,7 @@ import { useProcure } from '../context/ProcureContext';
 import { verifyTOTP } from '../utils/totp';
 import { db } from '../firebase';
 import { doc, setDoc } from 'firebase/firestore';
-import { notifyMaintenanceMode } from '../utils/notify';
+import { notifyMaintenanceMode, requestPushPermission } from '../utils/notify';
 import { User, Moon, Sun, Bell, Shield, Database, Lock, Save, Camera, Smartphone, Globe, Key, Clock, AlertTriangle, CheckCircle, Trash2, RotateCcw, Package, Search, Copy, Eye, EyeOff, Plus, X, Zap, ShieldCheck, ChevronDown, ChevronUp, RotateCw, ZoomIn, ZoomOut, Maximize2, Check, Edit3, Download } from 'lucide-react';
 
 /* ═══════════════════════════════════════════════════
@@ -1068,6 +1068,111 @@ const LiveCodeDisplay = () => {
   );
 };
 
+const WeeklySummaryModal = ({ onClose }) => {
+  const { state, showToast } = useProcure();
+  const [copied, setCopied] = useState(false);
+
+  const vendors = state.vendors || [];
+  const projects = state.projects || [];
+
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const weekStartStr = weekAgo.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  const activeVendors = vendors.filter(v => (v.status || '').toLowerCase() === 'active');
+  const expiringVendors = vendors.filter(v => (v.status || '').toLowerCase() === 'expiring soon');
+  const expiredVendors = vendors.filter(v => (v.status || '').toLowerCase() === 'expired');
+
+  const totalMW = vendors.reduce((sum, v) => sum + (Number(v.plantCapacity) || 0), 0);
+
+  const summaryText = `
+CleanMax Procure360 — Weekly Executive Digest (${weekStartStr} - ${dateStr})
+--------------------------------------------------
+• Total Vendors Registered: ${vendors.length}
+• Active Operational Vendors: ${activeVendors.length}
+• Total Contracting Capacity: ${totalMW.toFixed(2)} MW
+• Contracts Expiring Soon (30 Days): ${expiringVendors.length}
+• Expired PO/Contracts (Action Required): ${expiredVendors.length}
+• Active Projects in Pipeline: ${projects.length}
+
+Expiring Vendors Action List:
+${expiringVendors.map(v => `- ${v.vendorName || 'Vendor'} (${v.plantName || 'Plant'}): Expires ${v.contractEnd || 'N/A'}`).join('\n') || 'None'}
+
+Expired Contracts Action List:
+${expiredVendors.map(v => `- ❌ ${v.vendorName || 'Vendor'} (${v.plantName || 'Plant'}): Expired ${v.contractEnd || 'N/A'}`).join('\n') || 'None'}
+  `.trim();
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(summaryText);
+    setCopied(true);
+    showToast('Weekly summary copied to clipboard!', 'success');
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+      <div className="glass-panel animate-fade-in-up" style={{ width: '100%', maxWidth: '650px', maxHeight: '90vh', overflowY: 'auto', padding: '2rem', background: 'var(--bg-card)', borderRadius: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+          <div>
+            <h2 style={{ fontSize: '1.35rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              📊 Weekly Executive Summary Digest
+            </h2>
+            <p style={{ margin: '0.2rem 0 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+              Report Period: <strong>{weekStartStr}</strong> to <strong>{dateStr}</strong>
+            </p>
+          </div>
+          <button onClick={onClose} className="btn-ghost" style={{ padding: '0.3rem' }} title="Close">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Metrics Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', marginBottom: '1.5rem' }}>
+          <div style={{ background: 'var(--bg-primary)', padding: '0.85rem', borderRadius: '10px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>Active Vendors</p>
+            <p style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0.2rem 0 0 0', color: '#10b981' }}>{activeVendors.length}</p>
+          </div>
+          <div style={{ background: 'var(--bg-primary)', padding: '0.85rem', borderRadius: '10px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>Total Capacity</p>
+            <p style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0.2rem 0 0 0', color: 'var(--accent-color)' }}>{totalMW.toFixed(1)} MW</p>
+          </div>
+          <div style={{ background: 'var(--bg-primary)', padding: '0.85rem', borderRadius: '10px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>Expiring (30d)</p>
+            <p style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0.2rem 0 0 0', color: '#f59e0b' }}>{expiringVendors.length}</p>
+          </div>
+          <div style={{ background: 'var(--bg-primary)', padding: '0.85rem', borderRadius: '10px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>Expired Contracts</p>
+            <p style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0.2rem 0 0 0', color: '#ef4444' }}>{expiredVendors.length}</p>
+          </div>
+        </div>
+
+        {/* Formatted Report Preview */}
+        <div style={{ background: 'var(--bg-primary)', padding: '1rem', borderRadius: '10px', border: '1px solid var(--border-color)', marginBottom: '1.5rem', fontFamily: 'monospace', fontSize: '0.82rem', whiteSpace: 'pre-wrap', color: 'var(--text-primary)', maxHeight: '250px', overflowY: 'auto' }}>
+          {summaryText}
+        </div>
+
+        {/* Action Bar */}
+        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          <button onClick={handleCopy} className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.45rem 0.9rem', fontSize: '0.85rem' }}>
+            {copied ? <Check size={16} color="#10b981" /> : <Copy size={16} />} {copied ? 'Copied!' : 'Copy Summary'}
+          </button>
+          <button onClick={handlePrint} className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.45rem 0.9rem', fontSize: '0.85rem' }}>
+            <Download size={16} /> Print / Export PDF
+          </button>
+          <button onClick={onClose} className="btn-premium" style={{ padding: '0.45rem 1.2rem', fontSize: '0.85rem' }}>
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const Settings = () => {
   const { state, dispatch, showToast } = useProcure();
   const [activeTab, setActiveTab] = useState('profile');
@@ -1087,6 +1192,38 @@ const Settings = () => {
   const [liveCode, setLiveCode] = useState('');
   const [codeSecondsLeft, setCodeSecondsLeft] = useState(30);
   const fileInputRef = useRef(null);
+  const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+
+  const handleTogglePref = (prefKey, value) => {
+    if (!state.currentUser || !state.currentUser.id) return;
+    const currentPrefs = state.currentUser.notificationPrefs || { emailAlerts: true, pushNotifications: false, weeklySummary: true };
+    const updatedPrefs = { ...currentPrefs, [prefKey]: value };
+
+    dispatch({
+      type: 'UPDATE_USER',
+      payload: { id: state.currentUser.id, notificationPrefs: updatedPrefs }
+    });
+
+    const labels = {
+      emailAlerts: 'Email Alerts',
+      pushNotifications: 'Push Notifications',
+      weeklySummary: 'Weekly Summary Report'
+    };
+
+    showToast(`${labels[prefKey] || 'Preference'} updated: ${value ? 'ON' : 'OFF'}`, 'success');
+  };
+
+  const handleTogglePushPref = async (value) => {
+    if (value) {
+      const res = await requestPushPermission();
+      if (!res.granted) {
+        showToast(res.error || 'Browser push permission was declined', 'warning');
+        handleTogglePref('pushNotifications', false);
+        return;
+      }
+    }
+    handleTogglePref('pushNotifications', value);
+  };
 
   const handleAvatarChange = (e) => {
     const file = e.target.files[0];
@@ -1548,19 +1685,83 @@ const Settings = () => {
           {/* NOTIFICATIONS SETTINGS */}
           {activeTab === 'notifications' && (
             <div className="animate-fade-in-up">
-              <h2 style={{ fontSize: '1.25rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>Notifications</h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '600px' }}>
-                {['Email Alerts', 'Push Notifications', 'Weekly Summary Report'].map((item, idx) => (
-                  <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem', background: 'var(--bg-app)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+              <h2 style={{ fontSize: '1.25rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>Notifications & Alert Preferences</h2>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxWidth: '650px' }}>
+                
+                {/* 1. Email Alerts */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem', background: 'var(--bg-app)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                  <div>
+                    <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      📧 Email Alerts
+                    </h3>
+                    <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: '0.25rem 0 0 0' }}>
+                      Receive automated contract & project notifications to <strong>{state.currentUser?.email || 'your email'}</strong>.
+                    </p>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                    <input 
+                      type="checkbox" 
+                      checked={Boolean(state.currentUser?.notificationPrefs?.emailAlerts ?? true)} 
+                      style={{ width: '18px', height: '18px', accentColor: 'var(--accent-color)', cursor: 'pointer' }} 
+                      onChange={(e) => handleTogglePref('emailAlerts', e.target.checked)} 
+                    />
+                  </label>
+                </div>
+
+                {/* 2. Push Notifications */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1.25rem', background: 'var(--bg-app)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                  <div>
+                    <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      🔔 Push Notifications
+                    </h3>
+                    <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: '0.25rem 0 0 0' }}>
+                      Receive real-time desktop & mobile browser pop-up notifications for critical alerts.
+                    </p>
+                  </div>
+                  <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                    <input 
+                      type="checkbox" 
+                      checked={Boolean(state.currentUser?.notificationPrefs?.pushNotifications ?? false)} 
+                      style={{ width: '18px', height: '18px', accentColor: 'var(--accent-color)', cursor: 'pointer' }} 
+                      onChange={(e) => handleTogglePushPref(e.target.checked)} 
+                    />
+                  </label>
+                </div>
+
+                {/* 3. Weekly Summary Report */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', padding: '1.25rem', background: 'var(--bg-app)', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div>
-                      <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>{item}</h3>
-                      <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Receive updates for {item.toLowerCase()}.</p>
+                      <h3 style={{ fontSize: '1rem', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        📊 Weekly Summary Report
+                      </h3>
+                      <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: '0.25rem 0 0 0' }}>
+                        Receive an automated executive digest report every week summarizing procurement activity.
+                      </p>
                     </div>
-                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
-                      <input type="checkbox" defaultChecked={idx !== 1} style={{ width: '18px', height: '18px', accentColor: 'var(--accent-color)' }} onChange={() => showToast('Preference saved', 'success')} />
+                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                      <input 
+                        type="checkbox" 
+                        checked={Boolean(state.currentUser?.notificationPrefs?.weeklySummary ?? true)} 
+                        style={{ width: '18px', height: '18px', accentColor: 'var(--accent-color)', cursor: 'pointer' }} 
+                        onChange={(e) => handleTogglePref('weeklySummary', e.target.checked)} 
+                      />
                     </label>
                   </div>
-                ))}
+
+                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Preview your weekly executive summary digest:</span>
+                    <button 
+                      onClick={() => setIsSummaryModalOpen(true)} 
+                      className="btn-ghost" 
+                      style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem', border: '1px solid var(--accent-color)', color: 'var(--accent-color)', borderRadius: '8px', fontWeight: 600 }}
+                    >
+                      Preview Weekly Report
+                    </button>
+                  </div>
+                </div>
+
               </div>
             </div>
           )}
@@ -1935,6 +2136,9 @@ const Settings = () => {
           onCropSave={handleCropSave}
           onClose={() => setCropperSrc(null)}
         />
+      {/* ══ WEEKLY EXECUTIVE SUMMARY MODAL ══ */}
+      {isSummaryModalOpen && (
+        <WeeklySummaryModal onClose={() => setIsSummaryModalOpen(false)} />
       )}
     </div>
   );
