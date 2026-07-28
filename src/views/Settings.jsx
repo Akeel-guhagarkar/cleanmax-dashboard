@@ -1892,10 +1892,15 @@ const Settings = () => {
     const currentPrefs = state.currentUser.notificationPrefs || { emailAlerts: true, pushNotifications: false, weeklySummary: true };
     const updatedPrefs = { ...currentPrefs, [prefKey]: value };
 
+    const updatedUser = { ...state.currentUser, notificationPrefs: updatedPrefs };
+    sessionStorage.setItem('procure360_current_user', JSON.stringify(updatedUser));
+
     dispatch({
       type: 'UPDATE_USER',
       payload: { id: state.currentUser.id, notificationPrefs: updatedPrefs }
     });
+
+    setDoc(doc(db, 'users', state.currentUser.id), { notificationPrefs: updatedPrefs }, { merge: true }).catch(() => {});
 
     const labels = {
       emailAlerts: 'Email Alerts',

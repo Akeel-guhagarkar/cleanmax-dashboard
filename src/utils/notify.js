@@ -133,6 +133,18 @@ export const requestPushPermission = async () => {
 export const triggerBrowserPushNotification = (title, message) => {
   try {
     if (typeof window !== 'undefined' && 'Notification' in window) {
+      // Check user preferences
+      const storedUser = sessionStorage.getItem('procure360_current_user');
+      if (storedUser) {
+        try {
+          const user = JSON.parse(storedUser);
+          if (user?.notificationPrefs?.pushNotifications === false) {
+            console.log('Push notification suppressed: user disabled pushNotifications preference');
+            return;
+          }
+        } catch (e) {}
+      }
+
       if (Notification.permission === 'granted') {
         new Notification(title, {
           body: message,
@@ -172,7 +184,7 @@ export const sendNotification = (dispatch, {
     playNotificationSound();
   }
 
-  // Trigger Web Desktop Push Notification
+  // Trigger Web Desktop Push Notification ONLY if enabled in user preferences
   triggerBrowserPushNotification(title, message);
 
   dispatch({

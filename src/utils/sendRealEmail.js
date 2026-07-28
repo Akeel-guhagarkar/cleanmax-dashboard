@@ -2,6 +2,20 @@
 // Sends clean, executive HTML emails directly to Gmail & Outlook inboxes
 
 export const sendRealEmail = async ({ recipients, subject, htmlBody, textFallback }) => {
+  // STRICT PREFERENCE CHECK: If user turned OFF Email Alerts in Settings, suppress dispatch
+  if (typeof window !== 'undefined') {
+    const storedUser = sessionStorage.getItem('procure360_current_user');
+    if (storedUser) {
+      try {
+        const u = JSON.parse(storedUser);
+        if (u?.notificationPrefs?.emailAlerts === false) {
+          console.log('Email dispatch suppressed: user turned OFF Email Alerts preference.');
+          return [{ email: 'suppressed', success: false, message: 'Email Alerts are turned OFF in Settings' }];
+        }
+      } catch (e) {}
+    }
+  }
+
   const dispatchPromises = recipients.map(async (recipientEmail) => {
     try {
       // 1. Primary: Web3Forms HTML API
