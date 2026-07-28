@@ -230,7 +230,7 @@ const vendorReducer = (state, action) => {
         ...state, 
         notifications: state.notifications.map(n => 
           n.id === action.payload.notificationId 
-            ? { ...n, readBy: [...new Set([...(n.readBy || []), action.payload.userId])] } 
+            ? { ...n, readBy: [...new Set([...(n.readBy || []), action.payload.userId, action.payload.role].filter(Boolean))] } 
             : n
         ) 
       };
@@ -239,7 +239,7 @@ const vendorReducer = (state, action) => {
         ...state, 
         notifications: state.notifications.map(n =>
           (!n.targetRoles || n.targetRoles.includes(action.payload.role)) 
-            ? { ...n, readBy: [...new Set([...(n.readBy || []), action.payload.userId])] } 
+            ? { ...n, readBy: [...new Set([...(n.readBy || []), action.payload.userId, action.payload.role].filter(Boolean))] } 
             : n
         ) 
       };
@@ -538,7 +538,7 @@ export const ProcureProvider = ({ children }) => {
         case 'MARK_NOTIFICATION_READ': {
           const notif = state.notifications.find(n => n.id === action.payload.notificationId);
           if (notif) {
-            const newReadBy = [...new Set([...(notif.readBy || []), action.payload.userId])];
+            const newReadBy = [...new Set([...(notif.readBy || []), action.payload.userId, action.payload.role].filter(Boolean))];
             await setDoc(doc(db, 'notifications', action.payload.notificationId), { readBy: newReadBy }, { merge: true });
           }
           break;
@@ -548,7 +548,7 @@ export const ProcureProvider = ({ children }) => {
           let countN = 0;
           state.notifications.forEach(n => {
             if (!n.targetRoles || n.targetRoles.includes(action.payload.role)) {
-              const newReadBy = [...new Set([...(n.readBy || []), action.payload.userId])];
+              const newReadBy = [...new Set([...(n.readBy || []), action.payload.userId, action.payload.role].filter(Boolean))];
               batchN.set(doc(db, 'notifications', n.id), { readBy: newReadBy }, { merge: true });
               countN++;
             }

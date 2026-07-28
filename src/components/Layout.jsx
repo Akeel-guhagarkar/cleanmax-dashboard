@@ -653,7 +653,7 @@ export const Layout = ({ children, currentTab, setCurrentTab, onLogout, userRole
     else if (result.type === 'user') setCurrentTab('employees');
   };
 
-  const currentUserId = state.currentUser?.id || state.currentUser?.email || state.currentUser?.role || 'default_user';
+  const currentUserId = state.currentUser?.id || state.currentUser?.email || state.currentUser?.name || 'default_user';
   const activeUserRole = String(state.currentUser?.role || userRole || 'admin').trim().toLowerCase();
 
   const userNotifications = (state.notifications || [])
@@ -668,10 +668,16 @@ export const Layout = ({ children, currentTab, setCurrentTab, onLogout, userRole
       });
     })
     .sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0))
-    .map(n => ({
-      ...n,
-      isUnread: !(n.readBy || []).includes(currentUserId)
-    }));
+    .map(n => {
+      const readList = (n.readBy || []).map(r => String(r).toLowerCase());
+      const isRead = readList.includes(String(currentUserId).toLowerCase()) ||
+                     readList.includes(activeUserRole) ||
+                     readList.includes(String(userRole).toLowerCase());
+      return {
+        ...n,
+        isUnread: !isRead
+      };
+    });
 
   const unreadCount = userNotifications.filter(n => n.isUnread).length;
 
@@ -750,10 +756,10 @@ export const Layout = ({ children, currentTab, setCurrentTab, onLogout, userRole
               {showNotifications && (
                 <NotificationDropdown 
                   notifications={userNotifications}
-                  onMarkRead={(id) => dispatch({ type: 'MARK_NOTIFICATION_READ', payload: { notificationId: id, userId: currentUserId } })}
-                  onMarkAllRead={() => dispatch({ type: 'MARK_ALL_NOTIFICATIONS_READ', payload: { role: userRole, userId: currentUserId } })}
+                  onMarkRead={(id) => dispatch({ type: 'MARK_NOTIFICATION_READ', payload: { notificationId: id, userId: currentUserId, role: activeUserRole } })}
+                  onMarkAllRead={() => dispatch({ type: 'MARK_ALL_NOTIFICATIONS_READ', payload: { role: activeUserRole, userId: currentUserId } })}
                   onDeleteNotification={(id) => dispatch({ type: 'DELETE_NOTIFICATION', payload: { notificationId: id } })}
-                  onClearAll={() => dispatch({ type: 'CLEAR_ALL_NOTIFICATIONS', payload: { role: userRole } })}
+                  onClearAll={() => dispatch({ type: 'CLEAR_ALL_NOTIFICATIONS', payload: { role: activeUserRole } })}
                   onClose={() => setShowNotifications(false)}
                   isMobile={isMobile}
                 />
