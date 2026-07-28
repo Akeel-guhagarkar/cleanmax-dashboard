@@ -5,6 +5,8 @@ import { calculateStatus } from '../utils/seedData';
 import { Upload, FileText, CheckCircle, AlertCircle, Trash2, Edit2, Save, X, Clock, User, Shield } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { sendNotification } from '../utils/notify';
+import { db } from '../firebase';
+import { doc, setDoc, deleteDoc } from 'firebase/firestore';
 
 const format12HourDateTime = (timestamp) => {
   if (!timestamp) return 'N/A';
@@ -324,6 +326,78 @@ const AddExcel = () => {
       }
       showToast('Import undone. All records from that upload have been removed.', 'success');
       setResults(null);
+    }
+  };
+
+  const handleDeleteUpload = async (history) => {
+    if (!history) return;
+    const isConfirmed = window.confirm(
+      `Are you sure you want to delete "${history.fileName}"?\n\n` +
+      `This will remove all ${history.recordsCount || 0} imported vendor and project records from your active Dashboard and move them safely to the Admin Recycle Bin.`
+    );
+    if (!isConfirmed) return;
+
+    try {
+      showToast(`📦 Moving "${history.fileName}" and ${history.recordsCount || 0} records to Recycle Bin...`, 'info');
+
+      const vendorIds = new Set(history.vendorIds || []);
+      const projectIds = new Set(history.projectIds || []);
+
+      // Fallback matching for legacy upload entries
+      if (vendorIds.size === 0 && history.recordsCount > 0) {
+        state.vendors.forEach(v => {
+          if (v.createdAt && Math.abs(new Date(v.createdAt) - new Date(history.timestamp)) < 180000) {
+            vendorIds.add(v.id);
+          }
+        });
+      }
+
+      if (projectIds.size === 0 && history.recordsCount > 0) {
+        state.projects.forEach(p => {
+          if (p.completionDate && Math.abs(new Date(p.completionDate) - new Date(history.timestamp)) < 180000) {
+            projectIds.add(p.id);
+          }
+        });
+      }
+
+      // 1. Move associated Vendors to Recycle Bin & delete from Firestore 'vendors'
+      const vendorTasks = Array.from(vendorIds).map(async (vId) => {
+        const vObj = state.vendors.find(v => v.id === vId);
+        if (vObj) {
+          const delVendor = { ...vObj, _deletedAt: new Date().toISOString(), _deletedBy: state.currentUser?.name || 'Admin', _deletedByRole: state.currentUser?.role || 'admin', _recordType: 'vendor' };
+          await setDoc(doc(db, 'deletedRecords', `del-v-${vId}`), delVendor, { merge: true }).catch(() => {});
+          await deleteDoc(doc(db, 'vendors', vId)).catch(() => {});
+        }
+      });
+
+      // 2. Move associated Projects to Recycle Bin & delete from Firestore 'projects'
+      const projectTasks = Array.from(projectIds).map(async (pId) => {
+        const pObj = state.projects.find(p => p.id === pId);
+        if (pObj) {
+          const delProject = { ...pObj, _deletedAt: new Date().toISOString(), _deletedBy: state.currentUser?.name || 'Admin', _deletedByRole: state.currentUser?.role || 'admin', _recordType: 'project' };
+          await setDoc(doc(db, 'deletedRecords', `del-p-${pId}`), delProject, { merge: true }).catch(() => {});
+          await deleteDoc(doc(db, 'projects', pId)).catch(() => {});
+        }
+      });
+
+      // 3. Move Upload History record to Recycle Bin & delete from Firestore 'uploadHistory'
+      const delUpload = { ...history, _deletedAt: new Date().toISOString(), _deletedBy: state.currentUser?.name || 'Admin', _deletedByRole: state.currentUser?.role || 'admin', _recordType: 'upload' };
+      await setDoc(doc(db, 'deletedRecords', `del-${history.id}`), delUpload, { merge: true }).catch(() => {});
+      await deleteDoc(doc(db, 'uploadHistory', history.id)).catch(() => {});
+
+      await Promise.all([...vendorTasks, ...projectTasks]);
+
+      // 4. Update local state
+      dispatch({
+        type: 'SOFT_DELETE_UPLOAD',
+        payload: history.id,
+        meta: { deletedBy: state.currentUser?.name, deletedByRole: state.currentUser?.role }
+      });
+
+      showToast(`✅ Deleted "${history.fileName}" and moved ${history.recordsCount || 0} records to Recycle Bin.`, 'success');
+    } catch (err) {
+      console.error("Error deleting upload history batch:", err);
+      showToast('❌ Failed to delete upload batch', 'error');
     }
   };
 
@@ -678,15 +752,10 @@ const AddExcel = () => {
                       <td>{history.recordsCount}</td>
                       <td style={{ textAlign: 'center' }}>
                         <button 
-                          onClick={() => {
-                            if(window.confirm('Move this upload to Recycle Bin? The import record will be stored safely.')) {
-                              dispatch({ type: 'SOFT_DELETE_UPLOAD', payload: history.id, meta: { deletedBy: state.currentUser?.name, deletedByRole: state.currentUser?.role } });
-                              showToast('Upload moved to Recycle Bin', 'success');
-                            }
-                          }} 
+                          onClick={() => handleDeleteUpload(history)} 
                           className="btn-ghost" 
                           style={{ padding: '0.4rem', color: '#ef4444', borderRadius: '6px', transition: 'all 0.2s' }} 
-                          title="Delete Upload"
+                          title="Delete Upload & Move Records to Recycle Bin"
                         >
                           <Trash2 size={16} />
                         </button>

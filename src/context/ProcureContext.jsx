@@ -269,8 +269,44 @@ const vendorReducer = (state, action) => {
     case 'SOFT_DELETE_UPLOAD': {
       const sh = state.uploadHistory.find(h => h.id === action.payload);
       if (!sh) return state;
+
+      const vendorIdsToDelete = new Set(sh.vendorIds || []);
+      const projectIdsToDelete = new Set(sh.projectIds || []);
+
+      // Fallback matching for legacy records without explicit vendorIds array
+      if (vendorIdsToDelete.size === 0 && sh.recordsCount > 0) {
+        state.vendors.forEach(v => {
+          if (v.createdAt && Math.abs(new Date(v.createdAt) - new Date(sh.timestamp)) < 180000) {
+            vendorIdsToDelete.add(v.id);
+          }
+        });
+      }
+
+      if (projectIdsToDelete.size === 0 && sh.recordsCount > 0) {
+        state.projects.forEach(p => {
+          if (p.completionDate && Math.abs(new Date(p.completionDate) - new Date(sh.timestamp)) < 180000) {
+            projectIdsToDelete.add(p.id);
+          }
+        });
+      }
+
+      const deletedVendors = state.vendors
+        .filter(v => vendorIdsToDelete.has(v.id))
+        .map(v => ({ ...v, _deletedAt: new Date().toISOString(), _deletedBy: action.meta?.deletedBy || 'Admin', _deletedByRole: action.meta?.deletedByRole || 'admin', _recordType: 'vendor', _recycleBinId: `del-v-${v.id}` }));
+
+      const deletedProjects = state.projects
+        .filter(p => projectIdsToDelete.has(p.id))
+        .map(p => ({ ...p, _deletedAt: new Date().toISOString(), _deletedBy: action.meta?.deletedBy || 'Admin', _deletedByRole: action.meta?.deletedByRole || 'admin', _recordType: 'project', _recycleBinId: `del-p-${p.id}` }));
+
       const delUpload = { ...sh, _deletedAt: new Date().toISOString(), _deletedBy: action.meta?.deletedBy || 'Admin', _deletedByRole: action.meta?.deletedByRole || 'admin', _recordType: 'upload', _recycleBinId: `del-${sh.id}` };
-      return { ...state, uploadHistory: state.uploadHistory.filter(h => h.id !== action.payload), deletedRecords: [delUpload, ...state.deletedRecords] };
+
+      return {
+        ...state,
+        uploadHistory: state.uploadHistory.filter(h => h.id !== action.payload),
+        vendors: state.vendors.filter(v => !vendorIdsToDelete.has(v.id)),
+        projects: state.projects.filter(p => !projectIdsToDelete.has(p.id)),
+        deletedRecords: [delUpload, ...deletedVendors, ...deletedProjects, ...state.deletedRecords]
+      };
     }
 
     default:
