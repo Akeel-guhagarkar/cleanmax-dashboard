@@ -899,3 +899,29 @@ input[type="password"]::-webkit-credentials-auto-fill-button {
   position: absolute;
   right: 0;
 }
+
+/* Ensure Leaflet maps, popups, tooltips, panes, and controls stay beneath modal overlays */
+.leaflet-container {
+  z-index: 1 !important;
+}
+
+.leaflet-pane,
+.leaflet-tile-pane,
+.leaflet-overlay-pane,
+.leaflet-shadow-pane,
+.leaflet-marker-pane,
+.leaflet-tooltip-pane,
+.leaflet-popup-pane,
+.leaflet-map-pane {
+  z-index: 2 !important;
+}
+
+.leaflet-popup {
+  z-index: 3 !important;
+}
+
+.leaflet-control-container,
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 4 !important;
+}
