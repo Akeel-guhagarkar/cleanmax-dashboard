@@ -2136,6 +2136,8 @@ const Settings = () => {
           onCropSave={handleCropSave}
           onClose={() => setCropperSrc(null)}
         />
+      )}
+
       {/* ══ WEEKLY EXECUTIVE SUMMARY MODAL ══ */}
       {isSummaryModalOpen && (
         <WeeklySummaryModal onClose={() => setIsSummaryModalOpen(false)} />
