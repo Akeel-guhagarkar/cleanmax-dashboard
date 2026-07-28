@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, GeoJSON, Marker, Popup, useMap } from 'react-l
 import L from 'leaflet';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
-import { STATE_TO_REGION, REGION_COLORS, REGION_CENTERS, getStatusClass } from '../utils/constants';
+import { STATE_TO_REGION, REGION_COLORS, REGION_CENTERS, getStatusClass, getCapacityInMW } from '../utils/constants';
 import 'leaflet/dist/leaflet.css';
 import { createContainerComponent, useLeafletContext } from '@react-leaflet/core';
 import 'leaflet.markercluster';
@@ -14,8 +14,11 @@ function useMarkerClusterGroup(props) {
   const instanceRef = useRef();
 
   if (!instanceRef.current) {
-    const { children, ...options } = props;
+    // Extract clusterRef so it doesn't get passed to Leaflet as an option
+    const { children, clusterRef, ...options } = props;
     const instance = new L.markerClusterGroup(options);
+    // Expose the raw Leaflet cluster instance for external use
+    if (clusterRef) clusterRef.current = instance;
     instanceRef.current = {
       instance,
       context: { ...context, layerContainer: instance },
@@ -41,10 +44,10 @@ const MapController = ({ selectedRegion, focusedVendor }) => {
   const map = useMap();
   useEffect(() => {
     if (focusedVendor && focusedVendor.lat && focusedVendor.lng) {
-      map.flyTo([focusedVendor.lat, focusedVendor.lng], 12, {
+      map.flyTo([focusedVendor.lat, focusedVendor.lng], 14, {
         animate: true,
-        duration: 1.8,
-        easeLinearity: 0.2
+        duration: 2.2,
+        easeLinearity: 0.15
       });
     } else if (selectedRegion && REGION_CENTERS[selectedRegion]) {
       const [lng, lat] = REGION_CENTERS[selectedRegion];
@@ -61,6 +64,41 @@ const MapController = ({ selectedRegion, focusedVendor }) => {
       });
     }
   }, [selectedRegion, focusedVendor, map]);
+  return null;
+};
+
+// Listens for flyTo end then uses zoomToShowLayer to break clusters and open popup
+const PopupController = ({ focusedVendor, clusterRef, markerRefsMap }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!focusedVendor) return;
+
+    const handleMoveEnd = () => {
+      const marker = markerRefsMap.current[focusedVendor.id];
+      const cluster = clusterRef.current;
+      if (!marker || !cluster) return;
+
+      // zoomToShowLayer ensures the marker is visible (unspiderfies cluster if needed)
+      // then we open the popup in the callback
+      setTimeout(() => {
+        try {
+          cluster.zoomToShowLayer(marker, () => {
+            setTimeout(() => {
+              if (marker) marker.openPopup();
+            }, 100);
+          });
+        } catch (e) {
+          // fallback: try direct popup open
+          try { marker.openPopup(); } catch (_) {}
+        }
+      }, 150);
+    };
+
+    map.once('moveend', handleMoveEnd);
+    return () => map.off('moveend', handleMoveEnd);
+  }, [focusedVendor, map, clusterRef, markerRefsMap]);
+
   return null;
 };
 
@@ -105,15 +143,20 @@ const createVendorIcon = (region) => {
   });
 };
 
-const MarkerWithPopup = ({ vendor, focusedVendor, setFocusedVendor }) => {
+const MarkerWithPopup = ({ vendor, focusedVendor, setFocusedVendor, onMount }) => {
   const markerRef = useRef(null);
   const closingProgrammatically = useRef(false);
   const isFocused = focusedVendor?.id === vendor.id;
 
+  // Register this marker instance with the parent (IndiaMap) so PopupController can access it
+  const setRef = (marker) => {
+    markerRef.current = marker;
+    if (marker && onMount) onMount(vendor.id, marker);
+  };
+
+  // Close popup when vendor loses focus
   useEffect(() => {
-    if (isFocused && markerRef.current) {
-      markerRef.current.openPopup();
-    } else if (!isFocused && markerRef.current) {
+    if (!isFocused && markerRef.current) {
       closingProgrammatically.current = true;
       markerRef.current.closePopup();
       closingProgrammatically.current = false;
@@ -124,7 +167,7 @@ const MarkerWithPopup = ({ vendor, focusedVendor, setFocusedVendor }) => {
     <Marker 
       position={[vendor.lat, vendor.lng]}
       icon={createVendorIcon(vendor.region)}
-      ref={markerRef}
+      ref={setRef}
       eventHandlers={{
         click: () => setFocusedVendor(vendor)
       }}
@@ -160,6 +203,12 @@ const MarkerWithPopup = ({ vendor, focusedVendor, setFocusedVendor }) => {
 export const IndiaMap = ({ selectedRegion, onRegionClick, hoveredState, setHoveredState, vendors, focusedVendor, setFocusedVendor }) => {
   const [geoData, setGeoData] = useState(null);
   const geoJsonRef = useRef(null);
+  const clusterInstanceRef = useRef(null);   // holds raw L.markerClusterGroup
+  const markerRefsMap = useRef({});          // vendorId -> L.Marker instance
+
+  const handleMarkerMount = (id, marker) => {
+    markerRefsMap.current[id] = marker;
+  };
 
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}india.json`)
@@ -247,6 +296,11 @@ export const IndiaMap = ({ selectedRegion, onRegionClick, hoveredState, setHover
         minZoom={4}
       >
         <MapController selectedRegion={selectedRegion} focusedVendor={focusedVendor} />
+        <PopupController
+          focusedVendor={focusedVendor}
+          clusterRef={clusterInstanceRef}
+          markerRefsMap={markerRefsMap}
+        />
         <TileLayer
           url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
           attribution='Tiles &copy; Esri'
@@ -261,6 +315,7 @@ export const IndiaMap = ({ selectedRegion, onRegionClick, hoveredState, setHover
         )}
         
         <MarkerClusterGroup
+          clusterRef={clusterInstanceRef}
           iconCreateFunction={createClusterCustomIcon}
           showCoverageOnHover={false}
           maxClusterRadius={50}
@@ -272,7 +327,8 @@ export const IndiaMap = ({ selectedRegion, onRegionClick, hoveredState, setHover
                 key={vendor.id} 
                 vendor={vendor} 
                 focusedVendor={focusedVendor} 
-                setFocusedVendor={setFocusedVendor} 
+                setFocusedVendor={setFocusedVendor}
+                onMount={handleMarkerMount}
               />
             );
           })}
@@ -291,15 +347,52 @@ const RegionMap = () => {
   const [regionSearch, setRegionSearch] = useState('');
 
   const filteredVendors = useMemo(() => {
+    // City & plant location geocoder map
+    const knownLocations = [
+      { keys: ['blr', 'bangalore', 'bengaluru'], lat: 12.9716, lng: 77.5946 },
+      { keys: ['bidadi'], lat: 12.7958, lng: 77.3857 },
+      { keys: ['madurai'], lat: 9.9252, lng: 78.1198 },
+      { keys: ['pataudi'], lat: 28.3228, lng: 76.7820 },
+      { keys: ['bareilly'], lat: 28.3670, lng: 79.4304 },
+      { keys: ['jhansi'], lat: 25.4484, lng: 78.5685 },
+      { keys: ['lucknow'], lat: 26.8467, lng: 80.9462 },
+      { keys: ['jhajjar'], lat: 28.6068, lng: 76.6565 },
+      { keys: ['rudrapur'], lat: 28.9800, lng: 79.4000 },
+      { keys: ['roorkee'], lat: 29.8543, lng: 77.8880 },
+      { keys: ['haridwar'], lat: 29.9457, lng: 78.1642 },
+      { keys: ['manesar'], lat: 28.3516, lng: 76.9405 },
+      { keys: ['hyderabad'], lat: 17.3850, lng: 78.4867 },
+      { keys: ['vizag', 'visakhapatnam'], lat: 17.6868, lng: 83.2185 },
+      { keys: ['wagholi'], lat: 18.5793, lng: 73.9822 },
+      { keys: ['shirur'], lat: 18.8285, lng: 74.3768 },
+      { keys: ['nashik'], lat: 19.9975, lng: 73.7898 },
+      { keys: ['pune'], lat: 18.5204, lng: 73.8567 },
+      { keys: ['khurda'], lat: 20.1824, lng: 85.6170 },
+      { keys: ['hosur'], lat: 12.7409, lng: 77.8253 }
+    ];
+
     return state.vendors.map((v, i) => {
-      // If a vendor doesn't have coordinates, place them around the region center
-      if (!v.lat || !v.lng) {
-        const center = REGION_CENTERS[v.region] || [79, 23.5]; // Default to central
-        const offsetLng = (i % 5) * 0.8 - 1.6;
-        const offsetLat = (i % 3) * 0.8 - 0.8;
-        return { ...v, lat: center[1] + offsetLat, lng: center[0] + offsetLng };
+      // 1. If explicit lat/lng provided in vendor object
+      if (v.lat && v.lng) {
+        return { ...v, lat: Number(v.lat), lng: Number(v.lng) };
       }
-      return v;
+      
+      // 2. Geocode from plant name, city, or state
+      const searchStr = `${v.plantName || ''} ${v.city || ''} ${v.state || ''}`.toLowerCase();
+      const matched = knownLocations.find(loc => loc.keys.some(k => searchStr.includes(k)));
+
+      if (matched) {
+        // Micro-offset for multiple sites in the same city so pins don't overlap exactly
+        const offsetLat = ((i % 3) - 1) * 0.02;
+        const offsetLng = ((i % 5) - 2) * 0.02;
+        return { ...v, lat: matched.lat + offsetLat, lng: matched.lng + offsetLng };
+      }
+
+      // 3. Fallback to region center
+      const center = REGION_CENTERS[v.region] || [79, 23.5];
+      const offsetLng = (i % 5) * 0.6 - 1.2;
+      const offsetLat = (i % 3) * 0.6 - 0.6;
+      return { ...v, lat: center[1] + offsetLat, lng: center[0] + offsetLng };
     }).filter(v => statusFilter === 'All' || v.status === statusFilter);
   }, [state.vendors, statusFilter]);
 
@@ -308,15 +401,15 @@ const RegionMap = () => {
     Object.keys(REGION_COLORS).forEach(r => {
       if (r !== 'Unknown') stats[r] = { vendors: [], capacity: 0 };
     });
-    
-    state.vendors.forEach(v => {
+    // Use filteredVendors so each vendor has lat/lng assigned (for map zoom to work)
+    filteredVendors.forEach(v => {
       if (stats[v.region]) {
         stats[v.region].vendors.push(v);
-        stats[v.region].capacity += Number(v.plantCapacity);
+        stats[v.region].capacity += getCapacityInMW(v.plantCapacity, v.capacityUnit);
       }
     });
     return stats;
-  }, [state.vendors]);
+  }, [filteredVendors]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 'calc(100vh - 150px)', gap: '1rem' }}>
@@ -422,8 +515,8 @@ const RegionMap = () => {
                   <div className="text-secondary" style={{ fontSize: '0.875rem', fontWeight: 600, marginTop: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Projects</div>
                 </div>
                 <div style={{ flex: 1, padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '2rem', fontWeight: 'bold', color: REGION_COLORS[selectedRegion] }}>{regionStats[selectedRegion].capacity.toFixed(1)}</div>
-                  <div className="text-secondary" style={{ fontSize: '0.875rem', fontWeight: 600, marginTop: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Capacity (kWp)</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 'bold', color: REGION_COLORS[selectedRegion] }}>{regionStats[selectedRegion].capacity.toFixed(2)}</div>
+                  <div className="text-secondary" style={{ fontSize: '0.875rem', fontWeight: 600, marginTop: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Capacity (MWp)</div>
                 </div>
               </div>
 
@@ -446,59 +539,98 @@ const RegionMap = () => {
                   </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {regionStats[selectedRegion].vendors.filter(v => 
-                    v.vendorName.toLowerCase().includes(regionSearch.toLowerCase()) || 
-                    (v.city && v.city.toLowerCase().includes(regionSearch.toLowerCase())) || 
-                    (v.state && v.state.toLowerCase().includes(regionSearch.toLowerCase()))
-                  ).map((v, i) => (
+                  {(() => {
+                    const filteredRegionVendors = regionStats[selectedRegion].vendors.filter(v => {
+                      if (!regionSearch.trim()) return true;
+                      const q = regionSearch.toLowerCase();
+                      return (
+                        (v.plantName && v.plantName.toLowerCase().includes(q)) ||
+                        (v.vendorName && v.vendorName.toLowerCase().includes(q)) ||
+                        (v.city && v.city.toLowerCase().includes(q)) ||
+                        (v.state && v.state.toLowerCase().includes(q))
+                      );
+                    });
+                    if (filteredRegionVendors.length === 0) return (
+                      <div className="text-secondary" style={{ textAlign: 'center', padding: '2rem 0', background: 'rgba(0,0,0,0.02)', borderRadius: '8px' }}>
+                        {regionSearch.trim() ? `No projects matching "${regionSearch}" in this region.` : 'No projects found in this region.'}
+                      </div>
+                    );
+                    return filteredRegionVendors.map((v, i) => {
+                    const isActive = focusedVendor?.id === v.id;
+                    return (
                     <div 
                       key={v.id} 
-                      onClick={() => setFocusedVendor(v)}
+                      onClick={() => setFocusedVendor(isActive ? null : v)}
                       className={`animate-stagger delay-${(i % 4) + 1}`} 
                       style={{ 
                         padding: '1rem', 
-                        background: 'rgba(255,255,255,0.03)', 
-                        border: '1px solid var(--border-color)', 
+                        background: isActive ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)', 
+                        border: `2px solid ${isActive ? REGION_COLORS[v.region] : 'var(--border-color)'}`, 
                         borderRadius: '12px', 
                         display: 'flex', 
                         justifyContent: 'space-between', 
                         alignItems: 'center', 
-                        transition: 'all var(--transition-fast)',
-                        cursor: 'pointer'
+                        transition: 'all 0.25s ease',
+                        cursor: 'pointer',
+                        boxShadow: isActive ? `0 0 20px ${REGION_COLORS[v.region]}44, inset 0 0 20px ${REGION_COLORS[v.region]}11` : 'none',
+                        transform: isActive ? 'translateX(6px) scale(1.01)' : 'translateX(0)'
                       }} 
-                      onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateX(4px)'; e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = REGION_COLORS[v.region]; }} 
-                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateX(0)'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}
+                      onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.transform = 'translateX(4px)'; e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = REGION_COLORS[v.region]; }}} 
+                      onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.transform = 'translateX(0)'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}}
                     >
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{v.vendorName}</div>
-                        <div className="text-secondary" style={{ fontSize: '0.85rem', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.95rem', color: isActive ? REGION_COLORS[v.region] : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {v.plantName || v.vendorName}
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {v.vendorName}
+                        </div>
+                        <div className="text-secondary" style={{ fontSize: '0.8rem', marginTop: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                           <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{v.plantCapacity} {v.capacityUnit}</span>
-                          <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'currentColor' }}></span>
+                          <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }}></span>
                           <span>₹{v.rate}/unit</span>
-                          {v.state && (
+                          {v.state && v.state !== '—' && (
                             <>
-                              <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'currentColor' }}></span>
+                              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }}></span>
                               <span>{v.state}</span>
                             </>
                           )}
-                          {v.city && (
+                          {v.city && v.city !== '—' && (
                             <>
-                              <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'currentColor' }}></span>
+                              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }}></span>
                               <span>{v.city}</span>
                             </>
                           )}
                         </div>
                       </div>
-                      <span className={`status-pill ${getStatusClass(v.status)}`} style={{ transform: 'scale(0.85)' }}>
-                        {v.status}
-                      </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem', marginLeft: '0.75rem', flexShrink: 0 }}>
+                        <span className={`status-pill ${getStatusClass(v.status)}`} style={{ transform: 'scale(0.85)', transformOrigin: 'right center' }}>
+                          {v.status}
+                        </span>
+                        <div
+                          title={isActive ? 'Click to deselect' : 'Zoom to site on map'}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.3rem',
+                            fontSize: '0.7rem',
+                            fontWeight: 600,
+                            color: isActive ? REGION_COLORS[v.region] : 'var(--text-secondary)',
+                            transition: 'color 0.2s',
+                            userSelect: 'none'
+                          }}
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
+                          </svg>
+                          {isActive ? 'Focused' : 'Zoom'}
+                        </div>
+                      </div>
                     </div>
-                  ))}
-                  {regionStats[selectedRegion].vendors.length === 0 && (
-                    <div className="text-secondary" style={{ textAlign: 'center', padding: '2rem 0', background: 'rgba(0,0,0,0.02)', borderRadius: '8px' }}>
-                      No projects found in this region.
-                    </div>
-                  )}
+                    );
+                  });
+                  })()}
                 </div>
               </div>
             </div>
@@ -539,8 +671,8 @@ const RegionMap = () => {
                         <div className="text-secondary" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Projects</div>
                       </div>
                       <div>
-                        <div style={{ fontSize: '1rem', fontWeight: 800 }}>{regionStats[region].capacity.toFixed(0)}</div>
-                        <div className="text-secondary" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>kWp</div>
+                        <div style={{ fontSize: '1rem', fontWeight: 800 }}>{regionStats[region].capacity.toFixed(2)}</div>
+                        <div className="text-secondary" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>MWp</div>
                       </div>
                     </div>
                   </div>

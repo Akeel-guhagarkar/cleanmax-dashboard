@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useProcure } from '../context/ProcureContext';
 import { Building2, FileText, Zap, IndianRupee, AlertTriangle, TrendingUp, X, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import ExcelJS from 'exceljs';
-import { normalizeStatus, getStatusClass, getCapacityInMW } from '../utils/constants';
+import { normalizeStatus, getStatusClass, getCapacityInMW, STATE_TO_REGION } from '../utils/constants';
+import { checkContractAlerts } from '../utils/notify';
 
 const KPICard = ({ title, value, subtitle, icon: Icon, delay, isAccent }) => (
   <div className={`glass-panel animate-stagger delay-${delay}`} style={{ 
@@ -40,42 +41,42 @@ const KPICard = ({ title, value, subtitle, icon: Icon, delay, isAccent }) => (
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
-  const { state, showToast } = useProcure();
+  const { state, dispatch, showToast } = useProcure();
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+
+  // ðŸ”” Auto-check contract expiry alerts once per day on load
+  useEffect(() => {
+    if (state.vendors && state.vendors.length > 0) {
+      checkContractAlerts(dispatch, state.vendors);
+    }
+  }, [state.vendors.length]);
   
   const metrics = useMemo(() => {
-    const uniqueVendors = new Set(state.vendors.map(v => v.vendorCode).filter(Boolean));
+    const uniqueVendors = new Set((state.vendors || []).map(v => v.vendorCode).filter(Boolean));
     const total = uniqueVendors.size;
     
-    const activeVendors = new Set(state.vendors.filter(v => normalizeStatus(v.status) === 'active').map(v => v.vendorCode).filter(Boolean));
+    const activeVendors = new Set((state.vendors || []).filter(v => normalizeStatus(v.status) === 'active').map(v => v.vendorCode).filter(Boolean));
     const active = activeVendors.size;
     
-    const expiring = state.vendors.filter(v => normalizeStatus(v.status) === 'expiring soon').length;
+    const expiring = (state.vendors || []).filter(v => normalizeStatus(v.status) === 'expiring soon').length;
     
-    const totalCapacity = state.vendors.reduce((sum, v) => sum + getCapacityInMW(v.plantCapacity, v.capacityUnit), 0);
-    const avgRate = state.vendors.length ? (state.vendors.reduce((sum, v) => sum + Number(v.rate || 0), 0) / state.vendors.length) : 0;
+    const totalCapacity = (state.vendors || []).reduce((sum, v) => sum + getCapacityInMW(v.plantCapacity, v.capacityUnit), 0);
+    const avgRate = state.vendors.length ? ((state.vendors || []).reduce((sum, v) => sum + Number(v.rate || 0), 0) / state.vendors.length) : 0;
     
     return { total, active, totalCapacity: totalCapacity.toFixed(2), avgRate: avgRate.toFixed(2), expiring };
   }, [state.vendors]);
 
+  const [isExporting, setIsExporting] = useState(false);
+
   const handleExportExcel = async () => {
-    if (selectedMonth === null) {
-      showToast('Please select a month', 'error');
-      return;
-    }
+    setIsExporting(true);
+    showToast('📦 Preparing portfolio Excel report...', 'info');
 
-    const currentDate = new Date();
-    const currentYear = currentDate.getFullYear();
-    const currentMonth = currentDate.getMonth();
-
-    if (selectedYear > currentYear || (selectedYear === currentYear && selectedMonth > currentMonth)) {
-      showToast('No data available for future dates', 'error');
-      return;
-    }
-
-    const reportDate = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`;
+    const selM = selectedMonth !== null ? selectedMonth : new Date().getMonth();
+    const selY = selectedYear || new Date().getFullYear();
+    const reportDate = `${selY}-${String(selM + 1).padStart(2, '0')}`;
 
     try {
       const workbook = new ExcelJS.Workbook();
@@ -84,23 +85,23 @@ const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
 
       const worksheet = workbook.addWorksheet(`Vendor Report - ${reportDate}`);
 
-      // Premium Title Row (Merged Cells A1 to O2)
-      worksheet.mergeCells('A1:O2');
+      // Premium Title Row (Merged Cells A1 to N2)
+      worksheet.mergeCells('A1:N2');
       const titleCell = worksheet.getCell('A1');
-      titleCell.value = `CLEANMAX VENDOR PORTFOLIO REPORT - ${MONTHS[selectedMonth].toUpperCase()} ${selectedYear}`;
+      titleCell.value = `CLEANMAX VENDOR PORTFOLIO REPORT - ${MONTHS[selM].toUpperCase()} ${selY}`;
       titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
       titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
       titleCell.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: 'FF0F172A' } // Dark modern slate background
+        fgColor: { argb: 'FF10B981' } // Green banner
       };
 
       // Header Row (Row 3)
       const headers = [
-        'Vendor Code', 'Vendor Name', 'Type', 'Region', 'State', 'City',
-        'Plant Name', 'Capacity', 'Rate (INR)', 'Previous Rate',
-        'PO Number', 'PR Number', 'Status', 'Contract Start', 'Contract End'
+        'Vendor Code', 'Vendor Name', 'CMES Entity', 'Region', 'State', 'City',
+        'Plant Name', 'Capacity', 'Rate (INR)',
+        'PO Number', 'Status', 'Renewal Status', 'Contract Start', 'Contract End'
       ];
       worksheet.getRow(3).values = headers;
 
@@ -109,61 +110,135 @@ const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
       headerRow.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: 'FF10B981' } // Green accent color
+        fgColor: { argb: 'FF4B5563' } // Grey sub-header
       };
       headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
       
       // Column Widths
-      const columnWidths = [15, 25, 15, 15, 15, 15, 25, 15, 15, 15, 20, 20, 15, 15, 15];
+      const columnWidths = [15, 25, 15, 15, 15, 20, 25, 15, 12, 16, 14, 22, 14, 14];
       columnWidths.forEach((width, index) => {
         worksheet.getColumn(index + 1).width = width;
         worksheet.getColumn(index + 1).alignment = { vertical: 'middle' };
       });
 
-      // Freeze header rows so when scrolling data, headers & title stay
+      // Freeze header rows & show grid lines explicitly
       worksheet.views = [
-        {state: 'frozen', xSplit: 0, ySplit: 3}
+        { state: 'frozen', xSplit: 0, ySplit: 3, showGridLines: true }
       ];
 
-      // Add Data Rows
-      state.vendors.forEach(v => {
-        worksheet.addRow([
+      // Table cell border definition
+      const tableBorder = {
+        top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+      };
+
+      // Header row cell borders
+      headerRow.eachCell(cell => {
+        cell.border = tableBorder;
+      });
+
+      // Add Active & Current Data Rows
+      (state.vendors || []).forEach(v => {
+        const isPending = String(v.status || '').toLowerCase().includes('expir');
+        const renewalStatus = isPending ? 'Expired - Pending Renewal' : 'Current Active';
+
+        const row = worksheet.addRow([
           v.vendorCode,
           v.vendorName,
-          v.vendorType,
+          v.cmesEntity || '-',
           v.region,
           v.state,
           v.city,
           v.plantName,
           `${v.plantCapacity} ${v.capacityUnit}`,
           v.rate,
-          v.previousRate,
           v.poNumber,
-          v.prNumber,
           v.status,
-          new Date(v.contractStart).toLocaleDateString(),
-          new Date(v.contractEnd).toLocaleDateString()
+          renewalStatus,
+          safeFormatDate(v.contractStart),
+          safeFormatDate(v.contractEnd)
         ]);
+        row.height = 22;
       });
 
-      // Add subtle alternating row colors for better readability
+      // Add Historical Archived Snapshots
+      (state.archivedContracts || []).forEach(arch => {
+        const row = worksheet.addRow([
+          arch.vendorCode,
+          arch.vendorName,
+          '-',
+          arch.region,
+          arch.state || '—',
+          arch.city || '—',
+          arch.plantName,
+          `${arch.plantCapacity} ${arch.capacityUnit}`,
+          arch.oldRate,
+          arch.oldPoNumber || '—',
+          'Expired',
+          'Renewed (Snapshot)',
+          safeFormatDate(arch.oldContractStart),
+          safeFormatDate(arch.oldContractEnd)
+        ]);
+        row.height = 22;
+      });
+
+      // Add alternating row colors, cell borders & whole-row status highlights
       worksheet.eachRow((row, rowNumber) => {
         if (rowNumber > 3) { // Skip title and header
-          if (rowNumber % 2 === 0) {
-            row.fill = {
+          const statusVal = String(row.getCell(11).value || '');
+          const renewalVal = String(row.getCell(12).value || '');
+
+          let rowBgColor = rowNumber % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF';
+          let rowTextColor = 'FF0F172A';
+
+          if (statusVal === 'Expiring Soon' || renewalVal.includes('Pending')) {
+            rowBgColor = 'FFFED7AA'; // Rich Warm Orange/Amber whole row
+            rowTextColor = 'FF7C2D12'; // Dark Amber/Orange Text
+          } else if (statusVal === 'Expired' && renewalVal !== 'Renewed (Snapshot)') {
+            rowBgColor = 'FFFECDD3'; // Rich Light Red/Rose whole row
+            rowTextColor = 'FF991B1B'; // Dark Red Text
+          }
+
+          row.eachCell((cell, colNo) => {
+            cell.fill = {
               type: 'pattern',
               pattern: 'solid',
-              fgColor: { argb: 'FFF8FAFC' } // Very light slate/gray
+              fgColor: { argb: rowBgColor }
             };
-          }
-          // Highlight Expiring or Expired statuses
-          const statusCell = row.getCell(13); // Status column
+            cell.border = tableBorder;
+            cell.font = { name: 'Arial', size: 9, color: { argb: rowTextColor } };
+            cell.alignment = { vertical: 'middle' };
+
+            // Center align code, region, state, PO, dates, status
+            if ([1, 3, 4, 10, 11, 12, 13, 14].includes(colNo)) {
+              cell.alignment = { vertical: 'middle', horizontal: 'center' };
+            }
+            // Right align rates & capacity
+            if ([8, 9].includes(colNo)) {
+              cell.alignment = { vertical: 'middle', horizontal: 'right' };
+            }
+          });
+
+          // Specific cell color coding for Status columns
+          const statusCell = row.getCell(11); // Status column
+          const renewalCell = row.getCell(12); // Renewal Status column
+
           if (statusCell.value === 'Expiring Soon') {
-            statusCell.font = { color: { argb: 'FFD97706' }, bold: true }; // Amber
+            statusCell.font = { name: 'Arial', size: 9, color: { argb: 'FFC2410C' }, bold: true };
           } else if (statusCell.value === 'Expired') {
-            statusCell.font = { color: { argb: 'FFDC2626' }, bold: true }; // Red
+            statusCell.font = { name: 'Arial', size: 9, color: { argb: 'FFB91C1C' }, bold: true };
           } else {
-            statusCell.font = { color: { argb: 'FF059669' }, bold: true }; // Green
+            statusCell.font = { name: 'Arial', size: 9, color: { argb: 'FF047857' }, bold: true };
+          }
+
+          if (renewalCell.value === 'Renewed (Snapshot)') {
+            renewalCell.font = { name: 'Arial', size: 9, color: { argb: 'FF64748B' }, italic: true };
+          } else if (renewalCell.value === 'Expired - Pending Renewal') {
+            renewalCell.font = { name: 'Arial', size: 9, color: { argb: 'FFC2410C' }, bold: true };
+          } else {
+            renewalCell.font = { name: 'Arial', size: 9, color: { argb: 'FF047857' }, bold: true };
           }
         }
       });
@@ -173,15 +248,17 @@ const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `CleanMax_Vendor_Report_${MONTHS[selectedMonth]}_${selectedYear}.xlsx`;
+      a.download = `CleanMax_Vendor_Report_${MONTHS[selM]}_${selY}.xlsx`;
       a.click();
       window.URL.revokeObjectURL(url);
       
-      showToast('Excel report generated successfully!', 'success');
+      showToast('✅ Excel report generated successfully!', 'success');
       setIsReportModalOpen(false);
     } catch (error) {
       console.error(error);
-      showToast('Failed to generate Excel report', 'error');
+      showToast('❌ Failed to generate Excel report', 'error');
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -229,9 +306,7 @@ const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
             Here is what's happening with your vendors today.
           </p>
         </div>
-        <button onClick={() => setIsReportModalOpen(true)} className="btn-premium mobile-w-full" style={{ boxShadow: 'var(--shadow-float)' }}>
-          Generate Report
-        </button>
+
       </div>
 
       {metrics.expiring > 0 && (
@@ -296,6 +371,7 @@ const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
             </thead>
             <tbody>
               {[...state.vendors]
+                .filter(v => Number(v.plantCapacity) > 0 || (v.region && v.region !== 'Unknown'))
                 .sort((a, b) => {
                   const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
                   const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -306,8 +382,18 @@ const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
                 <tr key={v.id}>
                   <td style={{ fontWeight: 600 }}>{v.vendorCode}</td>
                   <td>{v.vendorName}</td>
-                  <td className="text-secondary">{v.region}</td>
-                  <td style={{ fontWeight: 600 }}>{v.plantCapacity} <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{v.capacityUnit}</span></td>
+                  <td className="text-secondary">
+                    {(() => {
+                      const r = v.region && v.region !== 'Unknown' ? v.region : (STATE_TO_REGION[v.state] || STATE_TO_REGION[v.city] || v.region || 'â€”');
+                      return r;
+                    })()}
+                  </td>
+                  <td style={{ fontWeight: 600 }}>
+                    {Number(v.plantCapacity) > 0
+                      ? <>{v.plantCapacity} <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{v.capacityUnit || 'kWp'}</span></>
+                      : <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>â€”</span>
+                    }
+                  </td>
                   <td>
                     <span className={`status-pill ${getStatusClass(v.status)}`}>
                       {normalizeStatus(v.status) === 'active' && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }}></span>}
@@ -474,18 +560,29 @@ const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
                 <button 
                   className="btn-premium" 
                   onClick={handleExportExcel} 
-                  disabled={selectedMonth === null}
+                  disabled={isExporting}
                   style={{
                     padding: '0.875rem 2rem',
                     fontSize: '1.05rem',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '0.5rem',
-                    boxShadow: '0 10px 25px rgba(16, 185, 129, 0.3)'
+                    boxShadow: '0 10px 25px rgba(16, 185, 129, 0.3)',
+                    opacity: isExporting ? 0.7 : 1,
+                    cursor: isExporting ? 'not-allowed' : 'pointer'
                   }}
                 >
-                  <FileText size={20} />
-                  Download Excel
+                  {isExporting ? (
+                    <React.Fragment>
+                      <span style={{ display: 'inline-block', width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                      Generating...
+                    </React.Fragment>
+                  ) : (
+                    <React.Fragment>
+                      <FileText size={20} />
+                      Download Excel
+                    </React.Fragment>
+                  )}
                 </button>
               </div>
             </div>
@@ -497,4 +594,6 @@ const Dashboard = ({ setCurrentTab, setVendorFilter }) => {
 };
 
 export default Dashboard;
+
+
 

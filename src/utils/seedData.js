@@ -6,13 +6,19 @@ export const REGIONS = ['North', 'South', 'East', 'West', 'Central'];
 export const STATUSES = ['Active', 'Expiring Soon', 'Expired'];
 
 export const calculateStatus = (endDate) => {
+  if (!endDate) return 'Active';
   const end = new Date(endDate);
   const now = new Date();
-  const diffDays = differenceInDays(end, now);
-  
+  if (isNaN(end.getTime())) return 'Active';
+
+  const endMidnight = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  const nowMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffTime = endMidnight - nowMidnight;
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
   if (diffDays < 0) return 'Expired';
-  if (diffDays <= 30) return 'Expiring Soon';
-  return 'Active';
+  if (diffDays <= 30) return 'Expiring Soon'; // Exactly 1 month (30 days) before expiry
+  return 'Active'; // More than 1 month away
 };
 
 // SEED_PROJECTS is generated below
@@ -46,9 +52,28 @@ export const SEED_USERS = [
 
 const parseDate = (dateStr) => {
   if (!dateStr || dateStr === '—') return new Date().toISOString();
-  const parts = dateStr.includes('-') ? dateStr.split('-') : dateStr.split('/');
-  const [day, month, year] = parts;
-  return new Date(`${year}-${month}-${day}`).toISOString();
+  try {
+    if (dateStr.includes('-')) {
+      const parts = dateStr.split('-');
+      if (parts[0].length === 4) {
+        const d = new Date(dateStr);
+        return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+      }
+      const [day, month, year] = parts;
+      const d = new Date(`${year}-${month}-${day}`);
+      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+    }
+    if (dateStr.includes('/')) {
+      const parts = dateStr.split('/');
+      const [day, month, year] = parts;
+      const d = new Date(`${year}-${month}-${day}`);
+      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+    }
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+  } catch (e) {
+    return new Date().toISOString();
+  }
 };
 
 const genericVendors = [
@@ -231,3 +256,52 @@ export const SEED_PROJECTS = RAW_SEED_VENDORS.map((v, i) => ({
   completionDate: v.contractStart,
   createdAt: v.createdAt
 }));
+
+export const SEED_ARCHIVED_CONTRACTS = [
+  {
+    id: 'archived-sample-1',
+    vendorCode: '101793',
+    vendorName: 'Mekeran Energy & Infra Pvt Ltd',
+    plantName: 'Nykaa BLR2 (E-Retail)',
+    region: 'South',
+    state: 'Karnataka',
+    city: 'Bengaluru',
+    oldPoNumber: '4600000410',
+    newPoNumber: '4600000600',
+    oldRate: 175,
+    newRate: 187,
+    oldContractStart: '2023-12-08T00:00:00.000Z',
+    oldContractEnd: '2025-12-07T00:00:00.000Z',
+    newContractStart: '2025-12-08T00:00:00.000Z',
+    newContractEnd: '2027-12-07T00:00:00.000Z',
+    plantCapacity: 53.36,
+    capacityUnit: 'kWp',
+    renewalStatus: 'Renewed',
+    renewedAt: '2025-12-08T10:30:00.000Z',
+    renewedBy: 'Akeel Guhagarkar',
+    renewedByRole: 'Admin'
+  },
+  {
+    id: 'archived-sample-2',
+    vendorCode: '101681',
+    vendorName: 'Advik Energy Solution Private Limited',
+    plantName: 'Paramount Bed',
+    region: 'West',
+    state: 'Gujarat',
+    city: 'Vadodara',
+    oldPoNumber: '4600000100',
+    newPoNumber: '4600000241',
+    oldRate: 27,
+    newRate: 29,
+    oldContractStart: '2022-11-26T00:00:00.000Z',
+    oldContractEnd: '2024-11-25T00:00:00.000Z',
+    newContractStart: '2024-11-26T00:00:00.000Z',
+    newContractEnd: '2026-11-25T00:00:00.000Z',
+    plantCapacity: 665,
+    capacityUnit: 'kWp',
+    renewalStatus: 'Renewed',
+    renewedAt: '2024-11-26T14:15:00.000Z',
+    renewedBy: 'System Admin',
+    renewedByRole: 'Admin'
+  }
+];

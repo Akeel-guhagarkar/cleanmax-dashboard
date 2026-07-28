@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+// v20260727173503
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Leaf, Mail, Lock, ArrowRight, Check, Eye, EyeOff } from 'lucide-react';
 import { useProcure } from '../context/ProcureContext';
+import { verifyTOTP } from '../utils/totp';
 
 const Login = ({ onLogin }) => {
   const { state, dispatch, showToast } = useProcure();
@@ -12,26 +14,18 @@ const Login = ({ onLogin }) => {
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [imagesLoaded, setImagesLoaded] = useState(false);
-
+  const [is2FAStep, setIs2FAStep] = useState(false);
+  const [pendingUser, setPendingUser] = useState(null);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
   useEffect(() => {
     const bgImage = new Image();
     bgImage.src = `${import.meta.env.BASE_URL}login image .png`;
-
     const logoImage = new Image();
     logoImage.src = `${import.meta.env.BASE_URL}clean logo without background .png`;
-
     let loadedCount = 0;
-    const onLoad = () => {
-      loadedCount++;
-      if (loadedCount === 2) {
-        setImagesLoaded(true);
-      }
-    };
-
-    bgImage.onload = onLoad;
-    bgImage.onerror = onLoad; // Ensure it still loads if one fails
-    logoImage.onload = onLoad;
-    logoImage.onerror = onLoad;
+    const onLoad = () => { loadedCount++; if (loadedCount === 2) setImagesLoaded(true); };
+    bgImage.onload = onLoad; bgImage.onerror = onLoad;
+    logoImage.onload = onLoad; logoImage.onerror = onLoad;
   }, []);
 
   const handleSubmit = (e) => {
@@ -41,21 +35,47 @@ const Login = ({ onLogin }) => {
     setTimeout(() => {
       setIsLoading(false);
       const normalizedEmail = email.trim().toLowerCase();
-      const matchingUsers = state.users.filter(u => u.email.trim().toLowerCase() === normalizedEmail);
+      const matchingUsers = state.users.filter(u => u.email && u.email.trim().toLowerCase() === normalizedEmail);
       
       if (matchingUsers.length > 0) {
         const userWithPassword = matchingUsers.find(u => String(u.password).trim() === String(password).trim());
         
         if (userWithPassword) {
-          dispatch({ type: 'LOGIN', payload: userWithPassword });
-          onLogin(userWithPassword);
+          if (userWithPassword.twoFactorEnabled) {
+            setPendingUser(userWithPassword);
+            setIs2FAStep(true);
+            showToast('🔒 2FA Verification Code Required', 'info');
+          } else {
+            dispatch({ type: 'LOGIN', payload: userWithPassword });
+            onLogin(userWithPassword);
+          }
         } else {
           showToast('incorrect password', 'error');
         }
       } else {
         showToast('User not found', 'error');
       }
-    }, 1500);
+    }, 1200);
+  };
+
+  const handle2FASubmit = (e) => {
+    e.preventDefault();
+    if (!twoFactorCode || twoFactorCode.trim().length < 6) {
+      showToast('Please enter your 6-digit 2FA code', 'error');
+      return;
+    }
+    setIsLoading(true);
+    const secret = pendingUser?.twoFactorSecret || 'CLEANMAX23456777';
+    const isValid = verifyTOTP(secret, twoFactorCode);
+
+    setIsLoading(false);
+    if (isValid) {
+      dispatch({ type: 'LOGIN', payload: pendingUser });
+      onLogin(pendingUser);
+      showToast('✅ 2FA Code Verified!', 'success');
+    } else {
+      showToast('❌ Invalid 2FA Code! Please check Google Authenticator on your phone', 'error');
+    }
   };
 
   // --- Animation Orchestration Variables ---
@@ -132,107 +152,165 @@ const Login = ({ onLogin }) => {
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
             transition={{ delay: 5, duration: 1.5, ease: "easeOut" }}
           >
-            <div className="card-header">
-              <h3>Secure Access</h3>
-              <p>Enter your credentials to proceed.</p>
-            </div>
-
-            <form onSubmit={handleSubmit} className="enterprise-form">
-              <div className="form-group">
-                <label>Email</label>
-                <div className="input-wrapper">
-                  <Mail size={18} className="input-icon" />
-                  <input 
-                    type="email" 
-                    className="enterprise-input" 
-                    placeholder="user@cleanmax.energy"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
+            {!is2FAStep ? (
+              <React.Fragment>
+                <div className="card-header">
+                  <h3>Secure Access</h3>
+                  <p>Enter your credentials to proceed.</p>
                 </div>
-              </div>
 
-              <div className="form-group">
-                <label>Password</label>
-                <div className="input-wrapper">
-                  <Lock size={18} className="input-icon" />
-                  <input 
-                    type={showPassword ? "text" : "password"} 
-                    className="enterprise-input" 
-                    placeholder="••••••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onFocus={() => setIsPasswordFocused(true)}
-                    onBlur={() => setIsPasswordFocused(false)}
-                    style={{ paddingRight: '3rem' }}
-                    required
-                  />
-                  {(isPasswordFocused || password.length > 0) && (
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      onMouseDown={(e) => e.preventDefault()}
-                      style={{
-                        position: 'absolute',
-                        right: '1rem',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: 'rgba(255, 255, 255, 0.9)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        padding: '0.2rem',
-                        zIndex: 5,
-                        transition: 'color 0.2s ease'
-                      }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = '#10b981'}
-                      onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
-                    >
-                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                    </button>
-                  )}
+                <form onSubmit={handleSubmit} className="enterprise-form">
+                  <div className="form-group">
+                    <label>Email</label>
+                    <div className="input-wrapper">
+                      <Mail size={18} className="input-icon" />
+                      <input 
+                        type="email" 
+                        className="enterprise-input" 
+                        placeholder="user@cleanmax.energy"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label>Password</label>
+                    <div className="input-wrapper">
+                      <Lock size={18} className="input-icon" />
+                      <input 
+                        type={showPassword ? "text" : "password"} 
+                        className="enterprise-input" 
+                        placeholder="••••••••••••"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        onFocus={() => setIsPasswordFocused(true)}
+                        onBlur={() => setIsPasswordFocused(false)}
+                        style={{ paddingRight: '3rem' }}
+                        required
+                      />
+                      {(isPasswordFocused || password.length > 0) && (
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          onMouseDown={(e) => e.preventDefault()}
+                          style={{
+                            position: 'absolute',
+                            right: '1rem',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: 'rgba(255, 255, 255, 0.9)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '0.2rem',
+                            zIndex: 5,
+                            transition: 'color 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.color = '#10b981'}
+                          onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
+                        >
+                          {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="form-options">
+                    <label className="checkbox-container">
+                      <input 
+                        type="checkbox" 
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                      />
+                      <span className="checkmark">
+                        {rememberMe && <Check size={14} strokeWidth={3} color="#0a1128" />}
+                      </span>
+                      Remember this device
+                    </label>
+                    
+                    <a href="#" className="forgot-link">Recover access</a>
+                  </div>
+
+                  <motion.button 
+                    type="submit" 
+                    className="enterprise-submit-btn"
+                    whileHover={{ scale: 1.015 }}
+                    whileTap={{ scale: 0.985 }}
+                    disabled={isLoading}
+                  >
+                    {isLoading ? (
+                      <span className="premium-loader"></span>
+                    ) : (
+                      <>
+                        <span>Authenticate</span>
+                        <ArrowRight size={18} className="btn-icon" />
+                      </>
+                    )}
+                  </motion.button>
+                </form>
+              </React.Fragment>
+            ) : (
+              <React.Fragment>
+                <div className="card-header" style={{ textAlign: 'center' }}>
+                  <div style={{ width: 54, height: 54, borderRadius: '16px', background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
+                    <Lock size={26} color="#10b981" />
+                  </div>
+                  <h3>Two-Factor Authentication</h3>
+                  <p style={{ fontSize: '0.82rem', marginTop: '0.4rem', color: 'rgba(255,255,255,0.7)' }}>
+                    Enter 6-digit code from Google/Microsoft Authenticator app for <strong>{pendingUser?.name}</strong>.
+                  </p>
                 </div>
-              </div>
 
-              <div className="form-options">
-                <label className="checkbox-container">
-                  <input 
-                    type="checkbox" 
-                    checked={rememberMe}
-                    onChange={(e) => setRememberMe(e.target.checked)}
-                  />
-                  <span className="checkmark">
-                    {rememberMe && <Check size={14} strokeWidth={3} color="#0a1128" />}
-                  </span>
-                  Remember this device
-                </label>
-                
-                <a href="#" className="forgot-link">Recover access</a>
-              </div>
+                <form onSubmit={handle2FASubmit} className="enterprise-form" style={{ marginTop: '1.25rem' }}>
+                  <div className="form-group">
+                    <label style={{ textAlign: 'center', display: 'block', marginBottom: '0.5rem', fontSize: '0.82rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Security Code</label>
+                    <input 
+                      type="text"
+                      maxLength={6}
+                      className="enterprise-input" 
+                      placeholder="Enter 6-digit code"
+                      value={twoFactorCode}
+                      onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ''))}
+                      autoFocus
+                      required
+                      style={{ textAlign: 'center', fontSize: '1.5rem', letterSpacing: '0.35em', fontWeight: 700, padding: '0.75rem' }}
+                    />
+                  </div>
 
-              <motion.button 
-                type="submit" 
-                className="enterprise-submit-btn"
-                whileHover={{ scale: 1.015 }}
-                whileTap={{ scale: 0.985 }}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <span className="premium-loader"></span>
-                ) : (
-                  <>
-                    <span>Authenticate</span>
-                    <ArrowRight size={18} className="btn-icon" />
-                  </>
-                )}
-              </motion.button>
-            </form>
+                  <motion.button 
+                    type="submit" 
+                    className="enterprise-submit-btn"
+                    whileHover={{ scale: 1.015 }}
+                    whileTap={{ scale: 0.985 }}
+                    disabled={isLoading}
+                  >
+                    {isLoading ? (
+                      <span className="premium-loader"></span>
+                    ) : (
+                      <>
+                        <span>Verify & Sign In</span>
+                        <ArrowRight size={18} className="btn-icon" />
+                      </>
+                    )}
+                  </motion.button>
+
+                  <button
+                    type="button"
+                    onClick={() => setIs2FAStep(false)}
+                    style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: '0.8rem', cursor: 'pointer', marginTop: '0.75rem', textAlign: 'center', width: '100%', textDecoration: 'underline' }}
+                  >
+                    ← Back to Login
+                  </button>
+                </form>
+              </React.Fragment>
+            )}
             
             <div className="card-footer">
-              <p>Protected by Enterprise SSO Security.</p>
+              <p>Protected by Enterprise SSO & 2FA Security.</p>
             </div>
           </motion.div>
         </div>

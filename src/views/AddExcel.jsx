@@ -2,19 +2,57 @@ import React, { useRef, useState } from 'react';
 import ExcelJS from 'exceljs';
 import { useProcure } from '../context/ProcureContext';
 import { calculateStatus } from '../utils/seedData';
-import { Upload, FileText, CheckCircle, AlertCircle, Trash2, Edit2, Save, X } from 'lucide-react';
-import { v4 as uuidv4 } from 'uuid'; 
+import { Upload, FileText, CheckCircle, AlertCircle, Trash2, Edit2, Save, X, Clock, User, Shield } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
+import { sendNotification } from '../utils/notify';
+
+const format12HourDateTime = (timestamp) => {
+  if (!timestamp) return 'N/A';
+  const d = new Date(timestamp);
+  if (isNaN(d.getTime())) return 'N/A';
+  return d.toLocaleString('en-US', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  });
+};
 
 const AddExcel = () => {
   const { state, dispatch, showToast } = useProcure();
   const fileInputRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingProgress, setProcessingProgress] = useState(0);
   const [results, setResults] = useState(null);
   const [previewData, setPreviewData] = useState(null);
+  const [previewSearchTerm, setPreviewSearchTerm] = useState('');
+  const [previewPage, setPreviewPage] = useState(1);
+  const previewPageSize = 25;
   const [editingRowId, setEditingRowId] = useState(null);
   const [editFormData, setEditFormData] = useState(null);
   const [currentFileName, setCurrentFileName] = useState('');
+
+  const filteredPreviewData = React.useMemo(() => {
+    if (!previewData) return [];
+    if (!previewSearchTerm.trim()) return previewData;
+    const term = previewSearchTerm.toLowerCase().trim();
+    return previewData.filter(row => 
+      (row.vendorName && row.vendorName.toLowerCase().includes(term)) ||
+      (row.plantName && row.plantName.toLowerCase().includes(term)) ||
+      (row.vendorCode && row.vendorCode.toLowerCase().includes(term)) ||
+      (row.region && row.region.toLowerCase().includes(term)) ||
+      (row.city && row.city.toLowerCase().includes(term))
+    );
+  }, [previewData, previewSearchTerm]);
+
+  const paginatedPreviewData = React.useMemo(() => {
+    const start = (previewPage - 1) * previewPageSize;
+    return filteredPreviewData.slice(start, start + previewPageSize);
+  }, [filteredPreviewData, previewPage, previewPageSize]);
 
   const processExcel = async (file) => {
     setIsProcessing(true);
@@ -69,30 +107,33 @@ const AddExcel = () => {
           
           let vendorCode = getMappedVal(['vendorcode', 'code'], 1).toString().trim();
           let vendorName = getMappedVal(['vendorname', 'name', 'vendor'], 2).toString().trim();
-          let plantName = getMappedVal(['plantname', 'plant', 'project', 'projectname'], 3).toString().trim();
+          const VALID_ENTITIES = ['CMES', 'COGEN', 'JUPITER', 'POWER 1'];
+          let entityRaw = getMappedVal(['entity', 'cmesentity', 'cmes', 'company', 'cmescompany'], 3).toString().trim().toUpperCase();
+          let cmesEntity = VALID_ENTITIES.includes(entityRaw) ? entityRaw : 'CMES';
+          let plantName = getMappedVal(['plantname', 'plant', 'project', 'projectname'], 4).toString().trim();
           
           if (!vendorName || !plantName) {
              return;
           }
 
-          let capacityInfo = getMappedValInfo(['capacity', 'size', 'plantcapacity', 'capacitykwp', 'capacitymwp', 'capacitykw', 'capacitymw', 'kwp', 'mwp'], 4);
+          let capacityInfo = getMappedValInfo(['capacity', 'size', 'plantcapacity', 'capacitykwp', 'capacitymwp', 'capacitykw', 'capacitymw', 'kwp', 'mwp'], 5);
           let capacityStr = capacityInfo.val.toString().trim();
           let capacity = parseFloat(capacityStr) || 0;
-          let capacityUnit = 'MWp';
+          let capacityUnit = 'kWp'; // Always default to kWp
           
-          if (capacityInfo.matchedKey.includes('kw') || capacityStr.toLowerCase().includes('kw')) {
-            capacityUnit = 'KWp';
+          if (capacityInfo.matchedKey.includes('mw') || capacityStr.toLowerCase().includes('mwp')) {
+            capacityUnit = 'MWp'; // Only use MWp if explicitly stated
           }
 
-          let region = getMappedVal(['region', 'zone'], 5).toString().trim() || 'North';
-          let city = getMappedVal(['city', 'location'], 6).toString().trim();
-          let rateStr = getMappedVal(['rate', 'price', 'cost'], 7).toString().trim();
+          let region = getMappedVal(['region', 'zone'], 6).toString().trim();
+          let stateVal = getMappedVal(['state', 'statename'], 7).toString().trim();
+          let city = getMappedVal(['city', 'location', 'cityname'], 8).toString().trim();
+          let rateStr = getMappedVal(['rate', 'price', 'cost'], 9).toString().trim();
           let rate = parseFloat(rateStr) || 0;
-          let poNumber = getMappedVal(['ponumber', 'po', 'order', 'pono'], 8).toString().trim();
-          let prNumber = getMappedVal(['prnumber', 'pr', 'requisition', 'prno'], 9).toString().trim();
+          let poNumber = getMappedVal(['ponumber', 'po', 'order', 'pono'], 9).toString().trim();
           
-          let startDate = getMappedVal(['startdate', 'start', 'contractstart', 'startingdate'], 10);
-          let endDate = getMappedVal(['enddate', 'end', 'contractend', 'endingdate'], 11);
+          let startDate = getMappedVal(['startdate', 'start', 'contractstart', 'startingdate'], 11);
+          let endDate = getMappedVal(['enddate', 'end', 'contractend', 'endingdate'], 12);
           
           const formatDate = (dateVal) => {
             if (!dateVal) return new Date().toISOString().split('T')[0];
@@ -103,7 +144,7 @@ const AddExcel = () => {
             return new Date().toISOString().split('T')[0];
           };
 
-          let status = getMappedVal(['status', 'state'], 12).toString().trim();
+          let status = getMappedVal(['status', 'state'], 13).toString().trim();
           
           if (!vendorCode) {
              vendorCode = `VND-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -113,14 +154,15 @@ const AddExcel = () => {
             id: uuidv4(),
             vendorCode,
             vendorName,
+            cmesEntity,
             plantName,
             capacity,
             capacityUnit,
             region,
+            state: stateVal,
             city,
             rate,
             poNumber,
-            prNumber,
             contractStart: formatDate(startDate),
             contractEnd: formatDate(endDate),
             status
@@ -193,14 +235,14 @@ const AddExcel = () => {
         vendorCode: row.vendorCode,
         vendorName: row.vendorName,
         vendorType: 'Manufacturer',
+        cmesEntity: row.cmesEntity || 'CMES',
         plantName: row.plantName,
         plantCapacity: row.capacity,
         capacityUnit: row.capacityUnit,
         rate: row.rate,
         poNumber: row.poNumber,
-        prNumber: row.prNumber,
         region: row.region,
-        state: row.city,
+        state: row.state,
         city: row.city,
         contractStart: row.contractStart,
         contractEnd: row.contractEnd,
@@ -244,7 +286,20 @@ const AddExcel = () => {
         recordsCount: addedCount,
         vendorIds: addedVendorIds,
         projectIds: addedProjectIds,
+        uploadedBy: state.currentUser?.name || 'Admin User',
+        uploadedByRole: state.currentUser?.role || 'Admin',
+        timestamp: new Date().toISOString(),
       }
+    });
+
+    sendNotification(dispatch, {
+      title: 'ðŸ“Š Excel Import Complete',
+      message: `${addedCount} vendor record(s) imported from "${currentFileName || 'Excel file'}" (${newVendorCount} new vendors, ${existingVendorCount} updated)`,
+      type: 'success',
+      targetRoles: ['admin'],
+      actor: state.currentUser?.name,
+      actorRole: state.currentUser?.role,
+      skipForAdmin: false,
     });
 
     setResults({
@@ -316,7 +371,7 @@ const AddExcel = () => {
         <h1 style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Add Vendors via Excel</h1>
         <p style={{ color: 'var(--text-secondary)' }}>Upload your Excel sheet to bulk import vendors and projects.</p>
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.5rem' }}>
-          Expected Columns: <strong>Vendor Code, Vendor Name, Plant Name, Capacity, Region, City, Rate, PO No, PR No, Starting Date, Ending Date, Status</strong>
+          Expected Columns: <strong>Vendor Code, Vendor Name, Entity, Plant Name, Capacity, Region, State, City, Rate, PO No, Starting Date, Ending Date, Status</strong>
         </p>
       </div>
 
@@ -378,13 +433,27 @@ const AddExcel = () => {
 
       {previewData && (
         <div className="glass-panel animate-fade-in-up" style={{ marginTop: '2rem', padding: '1.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-             <h3 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-               Preview Data ({previewData.length} records)
-             </h3>
-             <div style={{ display: 'flex', gap: '1rem' }}>
-               <button className="btn-ghost" onClick={() => setPreviewData(null)}>Cancel</button>
-               <button className="btn-premium" onClick={handleImport}>Confirm & Import</button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+             <div>
+               <h3 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                 Preview Data ({previewData.length} records)
+               </h3>
+               <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
+                 Review and edit records before confirming the import.
+               </p>
+             </div>
+
+             <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+               <input
+                 type="text"
+                 placeholder="Search in preview..."
+                 className="premium-input"
+                 style={{ padding: '0.35rem 0.75rem', fontSize: '0.875rem', width: '200px' }}
+                 value={previewSearchTerm}
+                 onChange={(e) => { setPreviewSearchTerm(e.target.value); setPreviewPage(1); }}
+               />
+               <button className="btn-ghost" onClick={() => { setPreviewData(null); setPreviewSearchTerm(''); }}>Cancel</button>
+               <button className="btn-premium" onClick={handleImport}>Confirm & Import ({previewData.length})</button>
              </div>
           </div>
           
@@ -393,20 +462,27 @@ const AddExcel = () => {
               <thead>
                 <tr>
                   <th>Vendor Name</th>
+                  <th>Entity</th>
                   <th>Plant Name</th>
                   <th>Capacity</th>
                   <th>Region</th>
+                  <th>State</th>
                   <th>City</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {previewData.map(row => (
+                {paginatedPreviewData.map(row => (
                   <tr key={row.id}>
                     {editingRowId === row.id ? (
                       <>
                         <td>
                           <input className="premium-input" style={{ padding: '0.25rem 0.5rem', width: '100%' }} value={editFormData.vendorName} onChange={(e) => handleEditChange(e, 'vendorName')} />
+                        </td>
+                        <td>
+                          <select className="premium-input" style={{ padding: '0.25rem 0.5rem', width: '110px' }} value={editFormData.cmesEntity || 'CMES'} onChange={(e) => handleEditChange(e, 'cmesEntity')}>
+                            {['CMES', 'COGEN', 'JUPITER', 'POWER 1'].map(e => <option key={e} value={e}>{e}</option>)}
+                          </select>
                         </td>
                         <td>
                           <input className="premium-input" style={{ padding: '0.25rem 0.5rem', width: '100%' }} value={editFormData.plantName} onChange={(e) => handleEditChange(e, 'plantName')} />
@@ -416,12 +492,17 @@ const AddExcel = () => {
                              <input type="number" className="premium-input" style={{ padding: '0.25rem 0.5rem', width: '70px' }} value={editFormData.capacity} onChange={(e) => handleEditChange(e, 'capacity')} />
                              <select className="premium-input" style={{ padding: '0.25rem' }} value={editFormData.capacityUnit} onChange={(e) => handleEditChange(e, 'capacityUnit')}>
                                <option>MWp</option>
-                               <option>KWp</option>
+                               <option>kWp</option>
                              </select>
                           </div>
                         </td>
                         <td>
-                          <input className="premium-input" style={{ padding: '0.25rem 0.5rem', width: '100px' }} value={editFormData.region} onChange={(e) => handleEditChange(e, 'region')} />
+                          <select className="premium-input" style={{ padding: '0.25rem 0.5rem', width: '100px' }} value={editFormData.region} onChange={(e) => handleEditChange(e, 'region')}>
+                            {['North', 'South', 'East', 'West', 'Central'].map(r => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        </td>
+                        <td>
+                          <input className="premium-input" style={{ padding: '0.25rem 0.5rem', width: '100px' }} value={editFormData.state} onChange={(e) => handleEditChange(e, 'state')} />
                         </td>
                         <td>
                           <input className="premium-input" style={{ padding: '0.25rem 0.5rem', width: '100px' }} value={editFormData.city} onChange={(e) => handleEditChange(e, 'city')} />
@@ -436,9 +517,21 @@ const AddExcel = () => {
                     ) : (
                       <>
                         <td style={{ fontWeight: 600 }}>{row.vendorName}</td>
+                        <td>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '0.2rem 0.65rem',
+                            borderRadius: '99px',
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                            background: row.cmesEntity === 'COGEN' ? 'rgba(251,191,36,0.15)' : row.cmesEntity === 'JUPITER' ? 'rgba(139,92,246,0.15)' : row.cmesEntity === 'POWER 1' ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)',
+                            color: row.cmesEntity === 'COGEN' ? '#f59e0b' : row.cmesEntity === 'JUPITER' ? '#7c3aed' : row.cmesEntity === 'POWER 1' ? '#ef4444' : '#10b981',
+                          }}>{row.cmesEntity || 'CMES'}</span>
+                        </td>
                         <td>{row.plantName}</td>
                         <td>{row.capacity} {row.capacityUnit}</td>
                         <td>{row.region}</td>
+                        <td>{row.state}</td>
                         <td>{row.city}</td>
                         <td>
                           <div style={{ display: 'flex', gap: '0.5rem' }}>
@@ -450,14 +543,44 @@ const AddExcel = () => {
                     )}
                   </tr>
                 ))}
-                {previewData.length === 0 && (
+                {filteredPreviewData.length === 0 && (
                   <tr>
-                    <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem' }}>No data to import.</td>
+                    <td colSpan="8" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '2rem' }}>No matching records found.</td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
+
+          {/* Pagination Controls */}
+          {filteredPreviewData.length > previewPageSize && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                Showing <strong>{(previewPage - 1) * previewPageSize + 1}</strong> to <strong>{Math.min(previewPage * previewPageSize, filteredPreviewData.length)}</strong> of <strong>{filteredPreviewData.length}</strong> records
+              </span>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <button
+                  className="btn-ghost"
+                  disabled={previewPage === 1}
+                  onClick={() => setPreviewPage(p => Math.max(1, p - 1))}
+                  style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem', opacity: previewPage === 1 ? 0.5 : 1 }}
+                >
+                  Previous
+                </button>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, padding: '0 0.5rem' }}>
+                  Page {previewPage} of {Math.ceil(filteredPreviewData.length / previewPageSize)}
+                </span>
+                <button
+                  className="btn-ghost"
+                  disabled={previewPage >= Math.ceil(filteredPreviewData.length / previewPageSize)}
+                  onClick={() => setPreviewPage(p => Math.min(Math.ceil(filteredPreviewData.length / previewPageSize), p + 1))}
+                  style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem', opacity: previewPage >= Math.ceil(filteredPreviewData.length / previewPageSize) ? 0.5 : 1 }}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -496,40 +619,81 @@ const AddExcel = () => {
 
       {state.uploadHistory && state.uploadHistory.length > 0 && (
         <div className="glass-panel animate-fade-in-up" style={{ marginTop: '2rem', padding: '1.5rem' }}>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '1rem' }}>Upload History</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Clock size={20} color="var(--accent-color)" />
+              Upload History
+            </h2>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Total Uploads: <strong style={{ color: 'var(--text-primary)' }}>{state.uploadHistory.length}</strong>
+            </span>
+          </div>
           <div className="table-container">
             <table className="premium-table">
               <thead>
                 <tr>
                   <th>File Name</th>
-                  <th>Upload Date</th>
+                  <th>Uploaded By & Role</th>
+                  <th>Upload Date & Time (12-Hour)</th>
                   <th>Records Added</th>
                   <th style={{ width: '100px', textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {state.uploadHistory.map(history => (
-                  <tr key={history.id}>
-                    <td style={{ fontWeight: 500 }}>{history.fileName}</td>
-                    <td>{new Date(history.timestamp).toLocaleString()}</td>
-                    <td>{history.recordsCount}</td>
-                    <td style={{ textAlign: 'center' }}>
-                      <button 
-                        onClick={() => {
-                          if(window.confirm('Are you sure you want to delete this upload? This will remove all vendors and projects added during this import.')) {
-                            dispatch({ type: 'DELETE_UPLOAD_HISTORY', payload: history.id });
-                            showToast('Upload history deleted and records removed.', 'success');
-                          }
-                        }} 
-                        className="btn-ghost" 
-                        style={{ padding: '0.25rem', color: '#ef4444' }} 
-                        title="Delete Upload"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {(state.uploadHistory || []).map(history => {
+                  const uploaderName = history.uploadedBy || state.currentUser?.name || 'Admin User';
+                  const uploaderRole = history.uploadedByRole || state.currentUser?.role || 'Admin';
+
+                  return (
+                    <tr key={history.id}>
+                      <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                          <FileText size={16} color="var(--accent-color)" />
+                          <span>{history.fileName}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                            {uploaderName}
+                          </span>
+                          <span style={{
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            padding: '0.15rem 0.5rem',
+                            borderRadius: '12px',
+                            background: uploaderRole.toLowerCase() === 'admin' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                            color: uploaderRole.toLowerCase() === 'admin' ? '#3b82f6' : '#10b981',
+                            border: `1px solid ${uploaderRole.toLowerCase() === 'admin' ? 'rgba(59, 130, 246, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`
+                          }}>
+                            {uploaderRole}
+                          </span>
+                        </div>
+                      </td>
+                      <td style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                        {format12HourDateTime(history.timestamp)}
+                      </td>
+                      <td>{history.recordsCount}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <button 
+                          onClick={() => {
+                            if(window.confirm('Move this upload to Recycle Bin? The import record will be stored safely.')) {
+                              dispatch({ type: 'SOFT_DELETE_UPLOAD', payload: history.id, meta: { deletedBy: state.currentUser?.name, deletedByRole: state.currentUser?.role } });
+                              showToast('Upload moved to Recycle Bin', 'success');
+                            }
+                          }} 
+                          className="btn-ghost" 
+                          style={{ padding: '0.4rem', color: '#ef4444', borderRadius: '6px', transition: 'all 0.2s' }} 
+                          title="Delete Upload"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -540,3 +704,4 @@ const AddExcel = () => {
 };
 
 export default AddExcel;
+

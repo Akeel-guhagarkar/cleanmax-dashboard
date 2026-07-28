@@ -38,11 +38,35 @@ export const REGION_CENTERS = {
 
 export const normalizeStatus = (status) => String(status || '').toLowerCase().trim();
 
+/**
+ * Normalizes a region string to Title Case so that "west", "WEST", and "West" all
+ * become "West" — preventing duplicate chart entries caused by inconsistent casing.
+ */
+export const normalizeRegion = (region) => {
+  if (!region || String(region).trim() === '') return 'Unknown';
+  return String(region).trim().replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+};
+
 export const getStatusClass = (status) => {
   const s = normalizeStatus(status);
-  if (['active', 'completed'].includes(s)) return 'status-active';
-  if (['expiring soon', 'in progress'].includes(s)) return 'status-warning';
-  return 'status-danger';
+  
+  // 1. Green: Active / Completed
+  if (s.includes('active') || s.includes('completed')) {
+    return 'status-active';
+  }
+  
+  // 2. Orange: Expiring Soon / Expiring / In Progress / Warning
+  if (s.includes('expiring') || s.includes('warning') || s.includes('progress')) {
+    return 'status-warning';
+  }
+  
+  // 3. Red: Expired / Terminated / Inactive / Cancelled
+  if (s.includes('expired') || s.includes('inactive') || s.includes('terminated') || s.includes('cancel')) {
+    return 'status-danger';
+  }
+
+  // Default fallback is Orange (status-warning) so unmapped values are never mistakenly Red
+  return 'status-warning';
 };
 
 export const getCapacityInMW = (capacity, unit) => {
@@ -52,4 +76,33 @@ export const getCapacityInMW = (capacity, unit) => {
   }
   return cap; // assume MWp if not kWp
 };
+
+export const safeFormatDate = (dateVal, options = {}) => {
+  if (!dateVal) return '—';
+  try {
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString(options.locale || 'en-IN', options);
+  } catch (e) {
+    return '—';
+  }
+};
+
+export const safeFormatDateTime = (dateVal, options = {}) => {
+  if (!dateVal) return '—';
+  try {
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleString(options.locale || 'en-IN', options);
+  } catch (e) {
+    return '—';
+  }
+};
+
+export const safeFormatNumber = (num, decimals = 2) => {
+  const n = Number(num);
+  if (isNaN(n)) return (0).toFixed(decimals);
+  return n.toFixed(decimals);
+};
+
 

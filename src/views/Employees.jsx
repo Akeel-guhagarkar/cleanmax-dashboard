@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useProcure } from '../context/ProcureContext';
 import { Search, Plus, Trash2, X, Shield, Copy, Check } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+import { sendNotification } from '../utils/notify';
 
 const generatePassword = () => {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
@@ -13,7 +14,7 @@ const generatePassword = () => {
 };
 
 const EmployeeRegistrationForm = ({ onClose }) => {
-  const { dispatch, showToast } = useProcure();
+  const { state, dispatch, showToast } = useProcure();
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -164,9 +165,9 @@ const Employees = () => {
     if (searchTerm) {
       const lowerSearch = searchTerm.toLowerCase();
       result = result.filter(u => 
-        u.name.toLowerCase().includes(lowerSearch) || 
-        u.email.toLowerCase().includes(lowerSearch) ||
-        u.phone.toLowerCase().includes(lowerSearch)
+        (u.name && u.name.toLowerCase().includes(lowerSearch)) || 
+        (u.email && u.email.toLowerCase().includes(lowerSearch)) ||
+        (u.phone && u.phone.toLowerCase().includes(lowerSearch))
       );
     }
     
@@ -188,12 +189,25 @@ const Employees = () => {
   };
 
   const handleDeleteSelected = () => {
-    if (window.confirm('Revoke access for selected employees?')) {
+    if (window.confirm('Move selected employees to Recycle Bin? They will lose access immediately.')) {
+      const names = employees.filter(u => selectedIds.has(u.id)).map(u => u.name);
       Array.from(selectedIds).forEach(id => {
-        dispatch({ type: 'DELETE_USER', payload: id });
+        dispatch({
+          type: 'SOFT_DELETE_USER',
+          payload: id,
+          meta: { deletedBy: state.currentUser?.name, deletedByRole: state.currentUser?.role }
+        });
+      });
+      sendNotification(dispatch, {
+        title: '🗑️ Users Moved to Recycle Bin',
+        message: `${selectedIds.size} user(s) moved to Recycle Bin by ${state.currentUser?.name} (${state.currentUser?.role}): ${names.slice(0, 3).join(', ')}${names.length > 3 ? ` +${names.length - 3} more` : ''}`,
+        type: 'error',
+        targetRoles: ['admin'],
+        actor: state.currentUser?.name,
+        actorRole: state.currentUser?.role,
       });
       setSelectedIds(new Set());
-      showToast(`${selectedIds.size} employees removed`, 'success');
+      showToast(`${names.length} employee(s) moved to Recycle Bin`, 'success');
     }
   };
 
@@ -203,6 +217,15 @@ const Employees = () => {
       dispatch({ 
         type: 'UPDATE_USER', 
         payload: { id: user.id, password: newPassword } 
+      });
+      sendNotification(dispatch, {
+        title: 'ðŸ”‘ Password Reset',
+        message: `Password was reset for ${user.name} (${user.email})`,
+        type: 'warning',
+        targetRoles: ['admin'],
+        actor: state.currentUser?.name,
+        actorRole: state.currentUser?.role,
+        skipForAdmin: false,
       });
       setRegeneratedCredentials({ name: user.name, email: user.email, password: newPassword });
     }
@@ -270,17 +293,17 @@ const Employees = () => {
                   <td>
                     <input type="checkbox" checked={selectedIds.has(u.id)} onChange={() => handleSelect(u.id)} />
                   </td>
-                  <td style={{ fontWeight: 600 }}>{u.name}</td>
-                  <td>{u.email}</td>
-                  <td style={{ fontFamily: 'monospace', color: 'var(--text-secondary)' }}>{u.password}</td>
-                  <td>{u.phone}</td>
+                  <td style={{ fontWeight: 600 }}>{u.name || 'Unnamed User'}</td>
+                  <td>{u.email || 'No email'}</td>
+                  <td style={{ fontFamily: 'monospace', color: 'var(--text-secondary)' }}>{u.password || '-'}</td>
+                  <td>{u.phone || '-'}</td>
                   <td>
                     <span className="status-pill status-active" style={{ background: 'var(--bg-app)', color: 'var(--accent-color)', border: '1px solid var(--accent-color)' }}>
                       <Shield size={12} style={{ marginRight: 4 }} />
-                      {u.role.charAt(0).toUpperCase() + u.role.slice(1)}
+                      {u.role ? u.role.charAt(0).toUpperCase() + u.role.slice(1) : 'User'}
                     </span>
                   </td>
-                  <td className="text-secondary">{new Date(u.createdAt).toLocaleDateString()}</td>
+                  <td className="text-secondary">{u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '-'}</td>
                   <td>
                     <button onClick={() => handleRegeneratePassword(u)} className="btn-ghost" style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem', whiteSpace: 'nowrap', border: '1px solid var(--border-color)' }}>
                       Reset Password
@@ -333,3 +356,4 @@ const Employees = () => {
 };
 
 export default Employees;
+

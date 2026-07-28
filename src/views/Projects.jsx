@@ -1,14 +1,17 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useProcure } from '../context/ProcureContext';
-import { Plus, Search, Trash2, Edit2, Download, X, FileText, Calendar, MapPin, Tag, Box, Hash, Briefcase } from 'lucide-react';
-import { getStatusClass } from '../utils/constants';
+import { Plus, Search, Trash2, Edit2, X, FileText, Calendar, MapPin, Tag, Box, Hash, Briefcase, Building2, Zap, Clock, User, ChevronRight, TrendingUp, Shield, Info, Download } from 'lucide-react';
+import { getStatusClass, safeFormatDate, safeFormatDateTime, safeFormatNumber } from '../utils/constants';
+import { sendNotification, notifyDeletion, notifyNewProject } from '../utils/notify';
+import ExcelJS from 'exceljs';
 
+/* ─────────────────── Registration / Edit Form ─────────────────── */
 const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = false }) => {
   const { state, dispatch, showToast } = useProcure();
   const [formData, setFormData] = useState(initialData || {
     projectName: '',
     client: '',
-    type: 'Solar',
+    vendorCode: '',
     capacity: '',
     unit: 'MWp',
     status: 'Planning',
@@ -22,48 +25,39 @@ const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = fals
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    
-    const getUpdatedHistory = () => {
-      const now = new Date().toISOString();
-      const currentUser = state.currentUser?.name || 'Unknown';
-      const hist = formData.editedByHistory || (formData.lastEditedBy && formData.lastEditedBy !== '-' && formData.lastEditedBy !== 'Unknown' ? [{ name: formData.lastEditedBy, time: formData.lastEditedAt || now }] : []);
-      
-      const historyMap = new Map();
-      hist.forEach(entry => {
-        const name = typeof entry === 'string' ? entry : entry.name;
-        const time = typeof entry === 'string' ? (formData.lastEditedAt || now) : entry.time;
-        historyMap.set(name, { name, time });
-      });
-      historyMap.set(currentUser, { name: currentUser, time: now });
-      return Array.from(historyMap.values());
-    };
+    const now = new Date().toISOString();
+    const currentUser = state.currentUser?.name || 'Unknown';
+    const hist = formData.editedByHistory || (formData.lastEditedBy && formData.lastEditedBy !== '-' ? [{ name: formData.lastEditedBy, time: formData.lastEditedAt || now }] : []);
+    const historyMap = new Map();
+    hist.forEach(entry => {
+      const name = typeof entry === 'string' ? entry : entry.name;
+      const time = typeof entry === 'string' ? (formData.lastEditedAt || now) : entry.time;
+      historyMap.set(name, { name, time });
+    });
+    historyMap.set(currentUser, { name: currentUser, time: now });
+    const editedByHistory = Array.from(historyMap.values());
 
     if (isEditing) {
-      dispatch({
-        type: 'UPDATE_PROJECT',
-        payload: {
-          ...formData,
-          capacity: Number(formData.capacity),
-          editedByHistory: getUpdatedHistory(),
-          lastEditedBy: state.currentUser?.name || 'Unknown',
-          lastEditedById: state.currentUser?.id || null,
-          lastEditedAt: new Date().toISOString()
-        }
+      dispatch({ type: 'UPDATE_PROJECT', payload: { ...formData, capacity: Number(formData.capacity), editedByHistory, lastEditedBy: currentUser, lastEditedById: state.currentUser?.id || null, lastEditedAt: now } });
+      sendNotification(dispatch, {
+        title: '✏️ Project Updated',
+        message: `Project "${formData.projectName}" was edited`,
+        type: 'info',
+        targetRoles: ['admin'],
+        actor: currentUser,
+        actorRole: state.currentUser?.role,
       });
       showToast('Project updated successfully', 'success');
     } else {
       const projectCode = formData.projectCode || `PRJ-${new Date().getFullYear()}-${String(Math.floor(1 + Math.random() * 99)).padStart(2, '0')}`;
-      dispatch({
-        type: 'ADD_PROJECT',
-        payload: {
-          ...formData,
-          projectCode,
-          capacity: Number(formData.capacity),
-          editedByHistory: [{ name: state.currentUser?.name || 'Unknown', time: new Date().toISOString() }],
-          lastEditedBy: state.currentUser?.name || 'Unknown',
-          lastEditedById: state.currentUser?.id || null,
-          lastEditedAt: new Date().toISOString()
-        }
+      dispatch({ type: 'ADD_PROJECT', payload: { ...formData, projectCode, capacity: Number(formData.capacity), editedByHistory, lastEditedBy: currentUser, lastEditedById: state.currentUser?.id || null, lastEditedAt: now } });
+      sendNotification(dispatch, {
+        title: '✅ New Project Created',
+        message: `Project "${formData.projectName}" (${formData.capacity} ${formData.unit}) was added`,
+        type: 'success',
+        targetRoles: ['admin'],
+        actor: currentUser,
+        actorRole: state.currentUser?.role,
       });
       showToast('Project created successfully', 'success');
     }
@@ -72,24 +66,12 @@ const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = fals
 
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <style>{`
-        .project-modal-input {
-          background-color: #ffffff !important;
-          color: #111827 !important;
-          border-color: rgba(0, 0, 0, 0.1) !important;
-        }
-        .project-modal-input:focus {
-          border-color: var(--accent-color) !important;
-        }
-      `}</style>
+      <style>{`.project-modal-input { background-color: #ffffff !important; color: #111827 !important; border-color: rgba(0,0,0,0.1) !important; } .project-modal-input:focus { border-color: var(--accent-color) !important; }`}</style>
       <div className="glass-panel animate-fade-in-up" style={{ width: '90%', maxWidth: '800px', maxHeight: '90vh', overflowY: 'auto', padding: '2.5rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
           <h2 style={{ fontSize: '1.75rem' }}>{isEditing ? 'Edit Project' : 'New Project'}</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}>
-            <X size={24} />
-          </button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}><X size={24} /></button>
         </div>
-        
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
           <div>
             <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent-color)' }}>General Information</h3>
@@ -102,21 +84,16 @@ const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = fals
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Vendor Name *</label>
                 <input required type="text" name="client" className="premium-input project-modal-input" value={formData.client} onChange={handleChange} />
               </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Vendor Code *</label>
+                <input required type="text" name="vendorCode" placeholder="e.g. VND-1001" className="premium-input project-modal-input" value={formData.vendorCode || ''} onChange={handleChange} />
+              </div>
             </div>
           </div>
-
           <div>
             <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent-color)' }}>Technical Details</h3>
             <div className="responsive-grid">
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Type</label>
-                <select name="type" className="premium-input project-modal-input" value={formData.type} onChange={handleChange}>
-                  <option value="Solar">Solar</option>
-                  <option value="Wind">Wind</option>
-                  <option value="Hybrid (Solar+Wind)">Hybrid (Solar+Wind)</option>
-                </select>
-              </div>
-              <div style={{ display: 'flex', gap: '1rem' }}>
+              <div style={{ display: 'flex', gap: '1rem', width: '100%' }}>
                 <div style={{ flex: 2 }}>
                   <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Capacity *</label>
                   <input required type="number" name="capacity" className="premium-input project-modal-input" value={formData.capacity} onChange={handleChange} />
@@ -126,13 +103,12 @@ const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = fals
                   <select name="unit" className="premium-input project-modal-input" value={formData.unit} onChange={handleChange}>
                     <option value="MWp">MWp</option>
                     <option value="MW">MW</option>
-                    <option value="KWp">KWp</option>
+                    <option value="kWp">kWp</option>
                   </select>
                 </div>
               </div>
             </div>
           </div>
-
           <div>
             <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent-color)' }}>Planning</h3>
             <div className="responsive-grid">
@@ -150,7 +126,6 @@ const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = fals
               </div>
             </div>
           </div>
-
           <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '2rem' }}>
             <button type="button" onClick={onClose} className="btn-ghost" style={{ padding: '0.75rem 2rem' }}>Cancel</button>
             <button type="submit" className="btn-premium" style={{ padding: '0.75rem 2rem' }}>Save Project</button>
@@ -161,180 +136,787 @@ const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = fals
   );
 };
 
+/* ─────────────────── Premium Project Portfolio Modal ─────────────────── */
+const ProjectPortfolioModal = ({ project, onClose, onEdit }) => {
+  const { state } = useProcure();
+
+  const vendorInfo = useMemo(() => {
+    if (!state.vendors || !project) return null;
+    const projectVCode = String(project.vendorCode || '').trim().toLowerCase();
+    const projectVName = String(project.client || '').trim().toLowerCase();
+
+    if (projectVCode) {
+      const codeMatch = (state.vendors || []).find(v => v && v.vendorCode && String(v.vendorCode).trim().toLowerCase() === projectVCode);
+      if (codeMatch) return codeMatch;
+    }
+    const exactMatch = (state.vendors || []).find(v => v && String(v.vendorName).trim().toLowerCase() === projectVName && v.plantName === project.projectName);
+    if (exactMatch) return exactMatch;
+    return (state.vendors || []).find(v => v && String(v.vendorName).trim().toLowerCase() === projectVName) || null;
+  }, [project, state.vendors]);
+
+  const statusColors = {
+    'In Progress': { bg: 'rgba(16,185,129,0.12)', color: '#10b981', dot: '#10b981' },
+    'Completed':   { bg: 'rgba(59,130,246,0.12)',  color: '#3b82f6', dot: '#3b82f6' },
+    'Planning':    { bg: 'rgba(251,191,36,0.15)',   color: '#f59e0b', dot: '#f59e0b' },
+  };
+  const sc = statusColors[project?.status] || statusColors['Planning'];
+
+  const contractDaysLeft = useMemo(() => {
+    if (!vendorInfo?.contractEnd) return null;
+    const d = new Date(vendorInfo.contractEnd);
+    if (isNaN(d.getTime())) return null;
+    return Math.ceil((d - new Date()) / (1000 * 60 * 60 * 24));
+  }, [vendorInfo?.contractEnd]);
+
+  const formatDuration = (days) => {
+    const absDays = Math.abs(days);
+    if (isNaN(absDays)) return '0d';
+    const months = Math.floor(absDays / 30);
+    const remDays = absDays % 30;
+    if (months === 0) return `${absDays}d`;
+    if (remDays === 0) return `${months}m`;
+    return `${months}m ${remDays}d`;
+  };
+
+  const InfoRow = ({ label, value, accent }) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+      <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: '0.97rem', fontWeight: 700, color: accent || 'var(--text-primary)' }}>{value || '—'}</span>
+    </div>
+  );
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        className="animate-fade-in-up"
+        style={{ width: '100%', maxWidth: '860px', maxHeight: '90vh', overflowY: 'auto', borderRadius: '24px', background: '#ffffff', border: '1px solid rgba(229,231,235,0.8)', boxShadow: '0 32px 80px -12px rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column' }}
+      >
+        {/* ── Hero Header ── */}
+        <div style={{
+          background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 60%, #0e4d3e 100%)',
+          padding: '2.5rem 2.5rem 2rem',
+          position: 'relative',
+          borderRadius: '24px 24px 0 0',
+          overflow: 'hidden'
+        }}>
+          {/* Decorative circles */}
+          <div style={{ position: 'absolute', top: '-40px', right: '-40px', width: '200px', height: '200px', borderRadius: '50%', background: 'rgba(16,185,129,0.08)', pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', bottom: '-60px', left: '30%', width: '160px', height: '160px', borderRadius: '50%', background: 'rgba(59,130,246,0.07)', pointerEvents: 'none' }} />
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'relative', zIndex: 1 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {/* Breadcrumb */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '1rem', opacity: 0.65 }}>
+                <Briefcase size={13} color="#fff" />
+                <span style={{ fontSize: '0.75rem', color: '#fff', fontWeight: 500 }}>Projects</span>
+                <ChevronRight size={12} color="#fff" />
+                <span style={{ fontSize: '0.75rem', color: '#fff', fontWeight: 500 }}>{project.projectName}</span>
+              </div>
+
+              {/* Title */}
+              <h2 style={{ fontSize: '2rem', fontWeight: 800, color: '#fff', margin: 0, letterSpacing: '-0.03em', lineHeight: 1.2, marginBottom: '0.75rem' }}>
+                {project.projectName}
+              </h2>
+
+              {/* Tags row */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                <span style={{ background: sc.bg, color: sc.color, border: `1px solid ${sc.dot}40`, padding: '0.3rem 0.9rem', borderRadius: '99px', fontSize: '0.78rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: sc.dot, display: 'inline-block' }} />
+                  {project.status || 'Planning'}
+                </span>
+                <span style={{ background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.85)', padding: '0.3rem 0.9rem', borderRadius: '99px', fontSize: '0.78rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Zap size={12} /> {project.capacity} {project.unit}
+                </span>
+                <span style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', padding: '0.3rem 0.75rem', borderRadius: '99px', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Hash size={11} /> {project.projectCode}
+                </span>
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div style={{ display: 'flex', gap: '0.5rem', marginLeft: '1rem', flexShrink: 0 }}>
+              {onEdit && (
+                <button
+                  onClick={() => { onClose(); onEdit(project); }}
+                  style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '10px', padding: '0.6rem', cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', fontWeight: 600, backdropFilter: 'blur(8px)' }}
+                >
+                  <Edit2 size={15} /> Edit
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '10px', padding: '0.6rem', cursor: 'pointer', color: '#fff', backdropFilter: 'blur(8px)' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Body ── */}
+        <div style={{ padding: '2rem 2.5rem', display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
+
+          {/* ── Vendor / Contract Info ── */}
+          <section>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+              <Building2 size={15} /> Vendor & Contract
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: '1rem' }}>
+              <div style={{ background: '#f8fafc', borderRadius: '14px', padding: '1.1rem 1.25rem', border: '1px solid rgba(229,231,235,0.8)', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                <span style={{ fontSize: '0.72rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Vendor / Client</span>
+                <span style={{ fontSize: '1rem', fontWeight: 700, color: '#111827' }}>{project.client || '—'}</span>
+              </div>
+              {vendorInfo?.cmesEntity && (
+                <div style={{ background: '#f8fafc', borderRadius: '14px', padding: '1.1rem 1.25rem', border: '1px solid rgba(229,231,235,0.8)' }}>
+                  <InfoRow label="CMES Entity" value={vendorInfo.cmesEntity} accent="#7eb855" />
+                </div>
+              )}
+              {vendorInfo?.poNumber && (
+                <div style={{ background: '#f8fafc', borderRadius: '14px', padding: '1.1rem 1.25rem', border: '1px solid rgba(229,231,235,0.8)' }}>
+                  <InfoRow label="PO Number" value={vendorInfo.poNumber} />
+                </div>
+              )}
+              {vendorInfo?.rate !== undefined && vendorInfo?.rate !== null && (
+                <div style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.08), rgba(16,185,129,0.03))', borderRadius: '14px', padding: '1.1rem 1.25rem', border: '1px solid rgba(16,185,129,0.2)' }}>
+                  <InfoRow label="Contract Rate" value={`₹${safeFormatNumber(vendorInfo.rate)} / unit`} accent="#10b981" />
+                </div>
+              )}
+              {vendorInfo?.vendorCode && (
+                <div style={{ background: '#f8fafc', borderRadius: '14px', padding: '1.1rem 1.25rem', border: '1px solid rgba(229,231,235,0.8)' }}>
+                  <InfoRow label="Vendor Code" value={vendorInfo.vendorCode} />
+                </div>
+              )}
+            </div>
+            {!vendorInfo && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.85rem 1.1rem', background: 'rgba(251,191,36,0.07)', borderRadius: '12px', border: '1px solid rgba(251,191,36,0.2)', marginTop: '0.5rem' }}>
+                <Info size={15} color="#f59e0b" />
+                <span style={{ fontSize: '0.83rem', color: '#f59e0b', fontWeight: 500 }}>No linked vendor record found in the system for this project.</span>
+              </div>
+            )}
+          </section>
+
+          {/* ── Location & Timeline ── */}
+          <section>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+              <Calendar size={15} /> Timeline & Location
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: '1rem' }}>
+              {vendorInfo?.contractStart && (
+                <div style={{ background: '#f8fafc', borderRadius: '14px', padding: '1.1rem 1.25rem', border: '1px solid rgba(229,231,235,0.8)' }}>
+                  <InfoRow label="Contract Start" value={safeFormatDate(vendorInfo.contractStart, { day: 'numeric', month: 'short', year: 'numeric' })} />
+                </div>
+              )}
+              {vendorInfo?.contractEnd && (
+                <div style={{
+                  background: contractDaysLeft !== null && contractDaysLeft < 90 ? 'rgba(239,68,68,0.06)' : '#f8fafc',
+                  borderRadius: '14px', padding: '1.1rem 1.25rem',
+                  border: contractDaysLeft !== null && contractDaysLeft < 90 ? '1px solid rgba(239,68,68,0.25)' : '1px solid rgba(229,231,235,0.8)'
+                }}>
+                  <InfoRow
+                    label="Contract End"
+                    value={safeFormatDate(vendorInfo.contractEnd, { day: 'numeric', month: 'short', year: 'numeric' })}
+                    accent={contractDaysLeft !== null && contractDaysLeft < 90 ? '#ef4444' : undefined}
+                  />
+                  {contractDaysLeft !== null && (
+                    <span style={{ fontSize: '0.72rem', marginTop: '0.3rem', display: 'block', fontWeight: 600, color: contractDaysLeft < 0 ? '#ef4444' : contractDaysLeft < 90 ? '#f59e0b' : '#10b981' }}>
+                      {contractDaysLeft < 0
+                        ? `Expired ${formatDuration(contractDaysLeft)} ago`
+                        : `${formatDuration(contractDaysLeft)} remaining`}
+                    </span>
+                  )}
+                </div>
+              )}
+              {!vendorInfo?.contractStart && !vendorInfo?.contractEnd && project.completionDate && (
+                <div style={{ background: '#f8fafc', borderRadius: '14px', padding: '1.1rem 1.25rem', border: '1px solid rgba(229,231,235,0.8)' }}>
+                  <InfoRow label="Target Completion" value={safeFormatDate(project.completionDate, { day: 'numeric', month: 'short', year: 'numeric' })} />
+                </div>
+              )}
+              {(vendorInfo?.city || vendorInfo?.state) && (
+                <div style={{ background: '#f8fafc', borderRadius: '14px', padding: '1.1rem 1.25rem', border: '1px solid rgba(229,231,235,0.8)' }}>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, display: 'block', marginBottom: '0.25rem' }}>Location</span>
+                  <span style={{ fontSize: '0.97rem', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <MapPin size={14} color="var(--accent-color)" />
+                    {[vendorInfo.city, vendorInfo.state].filter(Boolean).join(', ')}
+                  </span>
+                  {vendorInfo.region && (
+                    <span style={{ display: 'inline-block', marginTop: '0.4rem', fontSize: '0.72rem', fontWeight: 700, background: 'rgba(0,0,0,0.05)', padding: '0.15rem 0.6rem', borderRadius: '99px', color: 'var(--text-secondary)' }}>
+                      {vendorInfo.region} Region
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+
+          {/* ── Technical Specs ── */}
+          <section>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+              <Zap size={15} /> Technical Specs
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: '1rem' }}>
+              <div style={{ background: 'linear-gradient(135deg, rgba(59,130,246,0.09), rgba(59,130,246,0.03))', borderRadius: '14px', padding: '1.1rem 1.25rem', border: '1px solid rgba(59,130,246,0.2)' }}>
+                <InfoRow label="Plant Capacity" value={`${project.capacity} ${project.unit}`} accent="#3b82f6" />
+              </div>
+              <div style={{ background: '#f8fafc', borderRadius: '14px', padding: '1.1rem 1.25rem', border: '1px solid rgba(229,231,235,0.8)' }}>
+                <InfoRow label="Project Code" value={project.projectCode} />
+              </div>
+            </div>
+          </section>
+
+          {/* ── Edit History ── */}
+          {((project.editedByHistory && project.editedByHistory.length > 0) || project.lastEditedBy) && (
+            <section>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+                <Clock size={15} /> Edit History
+              </h3>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem' }}>
+                {(project.editedByHistory && project.editedByHistory.length > 0 ? project.editedByHistory : [{ name: project.lastEditedBy, time: project.lastEditedAt }])
+                  .filter(Boolean)
+                  .map((h, i) => {
+                    const name = typeof h === 'string' ? h : (h?.name || 'Unknown');
+                    const time = typeof h === 'string' ? project.lastEditedAt : h?.time;
+                    return (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', background: '#f8fafc', borderRadius: '10px', padding: '0.5rem 0.85rem', border: '1px solid rgba(229,231,235,0.8)' }}>
+                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700, color: '#fff', flexShrink: 0 }}>
+                          {name?.charAt(0)?.toUpperCase() || '?'}
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>{name}</div>
+                          {time && <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{safeFormatDateTime(time, { dateStyle: 'medium', timeStyle: 'short' })}</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ─────────────────── Main Projects View ─────────────────── */
 const Projects = () => {
   const { state, dispatch, showToast } = useProcure();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showDrawer, setShowDrawer] = useState(false);
   const [editingProject, setEditingProject] = useState(null);
-  const [selectedProjectForDetails, setSelectedProjectForDetails] = useState(null);
-  
-  const getEditorName = (p) => {
-    if (p.lastEditedById) {
-      const user = state.users?.find(u => u.id === p.lastEditedById);
-      if (user && (user.role === 'admin' || user.role === 'employee')) {
-        return user.name;
-      }
-      return 'Unknown';
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 25;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  const normalizeName = (str) => {
+    if (!str) return '';
+    return String(str)
+      .toLowerCase()
+      .replace(/pvt\.?\s*ltd\.?|private\s*limited|inc\.?|corp\.?|llp/gi, '')
+      .replace(/[^a-z0-9]/g, '');
+  };
+
+  const getProjectVendorCode = (p) => {
+    if (p.vendorCode && p.vendorCode !== '—') return p.vendorCode;
+    if (!p.client || !state.vendors) return '—';
+    
+    // 1. Try exact match first
+    const clientName = String(p.client).trim().toLowerCase();
+    let match = (state.vendors || []).find(v => v && v.vendorName && String(v.vendorName).trim().toLowerCase() === clientName);
+    if (match?.vendorCode) return match.vendorCode;
+
+    // 2. Try normalized fuzzy match (ignoring hyphens, spaces, Pvt Ltd, etc.)
+    const normClient = normalizeName(p.client);
+    if (normClient.length > 2) {
+      match = (state.vendors || []).find(v => {
+        if (!v || !v.vendorName) return false;
+        const normVendor = normalizeName(v.vendorName);
+        return normVendor === normClient || (normVendor.length > 3 && normClient.includes(normVendor)) || (normClient.length > 3 && normVendor.includes(normClient));
+      });
+      if (match?.vendorCode) return match.vendorCode;
     }
-    return p.lastEditedBy || '-';
+
+    // 3. Fallback: match by first main word
+    const words = clientName.split(/[\s\-.,]+/).filter(w => w.length > 3);
+    if (words.length > 0) {
+      const firstWord = words[0];
+      match = (state.vendors || []).find(v => v && v.vendorName && String(v.vendorName).toLowerCase().includes(firstWord));
+      if (match?.vendorCode) return match.vendorCode;
+    }
+
+    return '—';
+  };
+
+  const getProjectEffectiveStatus = (p) => {
+    const vCode = getProjectVendorCode(p);
+    let matchingVendor = null;
+    if (vCode && vCode !== '—') {
+      matchingVendor = (state.vendors || []).find(v => v && v.vendorCode && String(v.vendorCode).trim() === String(vCode).trim());
+    }
+    if (!matchingVendor && p.client) {
+      const pClientNorm = normalizeName(p.client);
+      matchingVendor = (state.vendors || []).find(v => v && v.vendorName && normalizeName(v.vendorName) === pClientNorm);
+    }
+
+    const endDate = matchingVendor?.contractEnd || p.contractEnd || p.targetDate;
+
+    if (endDate) {
+      const end = new Date(endDate);
+      const now = new Date();
+      if (!isNaN(end.getTime())) {
+        const endMidnight = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+        const nowMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const diffTime = endMidnight - nowMidnight;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        if (diffDays < 0) return 'Expired';
+        if (diffDays <= 30) return 'Expiring Soon'; // Exactly 1 month (30 days) before expiry
+        return 'Active';
+      }
+    }
+
+    // Fallback if no date: strictly map to Active, Expiring Soon, or Expired
+    const raw = String(p.status || '').toLowerCase().trim();
+    if (raw.includes('expired')) return 'Expired';
+    if (raw.includes('expiring')) return 'Expiring Soon';
+    return 'Active'; // 'Completed', 'In Progress', 'Planning', 'Active' -> ALL become 'Active'
   };
 
   const projects = useMemo(() => {
     let result = [...(state.projects || [])];
-
     if (searchTerm) {
-      const lowerSearch = searchTerm.toLowerCase();
-      result = result.filter(p => 
-        p.projectCode.toLowerCase().includes(lowerSearch) || 
-        p.projectName.toLowerCase().includes(lowerSearch) ||
-        p.client.toLowerCase().includes(lowerSearch) ||
-        p.status.toLowerCase().includes(lowerSearch)
-      );
+      const q = searchTerm.toLowerCase();
+      result = result.filter(p => {
+        const effStatus = getProjectEffectiveStatus(p).toLowerCase();
+        return (
+          (p.projectCode || '').toLowerCase().includes(q) ||
+          (p.projectName || '').toLowerCase().includes(q) ||
+          (p.client || '').toLowerCase().includes(q) ||
+          effStatus.includes(q)
+        );
+      });
     }
-    
-    result.sort((a, b) => b.projectCode.localeCompare(a.projectCode));
+    result.sort((a, b) => (b.projectCode || '').localeCompare(a.projectCode || ''));
     return result;
-  }, [state.projects, searchTerm]);
+  }, [state.projects, searchTerm, state.vendors]);
+
+  const paginatedProjects = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return projects.slice(start, start + pageSize);
+  }, [projects, currentPage, pageSize]);
 
   const handleSelectAll = (e) => {
-    if (e.target.checked) setSelectedIds(new Set(projects.map(p => p.id)));
+    if (e.target.checked) setSelectedIds(new Set(paginatedProjects.map(p => p.id)));
     else setSelectedIds(new Set());
   };
 
+  const handleSelectAllPages = () => {
+    setSelectedIds(new Set(projects.map(p => p.id)));
+  };
+
   const handleSelect = (id) => {
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) newSet.delete(id);
-    else newSet.add(id);
-    setSelectedIds(newSet);
+    const s = new Set(selectedIds);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setSelectedIds(s);
   };
 
   const handleDeleteSelected = () => {
-    if (window.confirm('Delete selected projects?')) {
-      dispatch({ type: 'DELETE_PROJECTS', payload: Array.from(selectedIds) });
+    if (window.confirm(`Move ${selectedIds.size} project(s) to Recycle Bin?`)) {
+      const names = projects.filter(p => selectedIds.has(p.id)).map(p => p.projectName);
+      dispatch({
+        type: 'SOFT_DELETE_PROJECTS',
+        payload: Array.from(selectedIds),
+        meta: { deletedBy: state.currentUser?.name, deletedByRole: state.currentUser?.role }
+      });
+      notifyDeletion(dispatch, {
+        itemType: 'Projects',
+        itemName: `${selectedIds.size} project(s): ${names.slice(0, 2).join(', ')}${names.length > 2 ? ` +${names.length - 2} more` : ''}`,
+        actorName: state.currentUser?.name || 'Unknown User',
+      });
       setSelectedIds(new Set());
-      showToast(`${selectedIds.size} projects deleted`, 'success');
+      showToast(`${selectedIds.size} projects moved to Recycle Bin`, 'success');
     }
   };
 
+  const statusColors = {
+    'Active':        '#10b981',
+    'Expiring Soon': '#f59e0b',
+    'Expired':       '#ef4444',
+    'In Progress':   '#10b981',
+    'Completed':     '#3b82f6',
+    'Planning':      '#f59e0b',
+  };
+
+  /* ── Excel Export with Expiry Highlighting ── */
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportProjects = async () => {
+    setIsExporting(true);
+    showToast('📦 Preparing projects export...', 'info');
+    try {
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'CleanMax System';
+      wb.created = new Date();
+
+      const ws = wb.addWorksheet('Projects Pipeline');
+
+      const colCount = 8;
+      ws.mergeCells(`A1:H2`);
+      const titleRow = ws.getRow(1);
+      titleRow.height = 36;
+      titleRow.getCell(1).value = 'CLEANMAX — PROJECTS PIPELINE REPORT';
+      titleRow.getCell(1).font  = { name: 'Arial', size: 15, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleRow.getCell(1).fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } };
+      titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
+
+      // Generated-on sub-row
+      ws.mergeCells('A3:H3');
+      const subRow = ws.getRow(3);
+      subRow.getCell(1).value = `Generated on: ${new Date().toLocaleString('en-IN')}`;
+      subRow.getCell(1).font  = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF64748B' } };
+      subRow.getCell(1).fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+      subRow.getCell(1).alignment = { horizontal: 'right', vertical: 'middle' };
+      subRow.height = 18;
+
+      ws.addRow([]); // spacer
+
+      // Header row
+      const hdrRow = ws.addRow(['Project Code', 'Project Name', 'Vendor Code', 'Vendor Name', 'Capacity', 'Status', 'Target Completion', 'Days Left']);
+      hdrRow.height = 24;
+      hdrRow.eachCell(cell => {
+        cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, name: 'Arial', size: 10 };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4B5563' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = {
+          top:    { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          left:   { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right:  { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        };
+      });
+
+      // Column widths
+      ws.columns = [16,32,18,28,14,16,20,12].map(w => ({ width: w }));
+
+      // Freeze header
+      ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 5, showGridLines: true }];
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const tableBorder = {
+        top:    { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        left:   { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        right:  { style: 'thin', color: { argb: 'FFCBD5E1' } },
+      };
+
+      // Add data rows
+      const allProjects = [...(state.projects || [])];
+      allProjects.sort((a, b) => (b.projectCode || '').localeCompare(a.projectCode || ''));
+
+      allProjects.forEach((p, idx) => {
+        const effStatus = getProjectEffectiveStatus(p);
+        const compDate = p.completionDate ? new Date(p.completionDate) : null;
+        if (compDate) compDate.setHours(0, 0, 0, 0);
+        const daysLeft = compDate ? Math.ceil((compDate - today) / (1000 * 60 * 60 * 24)) : null;
+
+        // Determine row highlight
+        let rowBg = idx % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF';
+        let rowText = 'FF0F172A';
+
+        if (effStatus === 'Expired') {
+          rowBg   = 'FFFECDD3'; // Light red — Expired
+          rowText = 'FF991B1B';
+        } else if (effStatus === 'Expiring Soon') {
+          rowBg   = 'FFFED7AA'; // Light orange — Expiring Soon
+          rowText = 'FF7C2D12';
+        }
+
+        const daysText = daysLeft === null ? '—'
+          : daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue`
+          : `${daysLeft}d left`;
+
+        const row = ws.addRow([
+          p.projectCode || '',
+          p.projectName || '',
+          getProjectVendorCode(p),
+          p.client || '',
+          `${p.capacity || ''} ${p.unit || ''}`.trim(),
+          effStatus,
+          compDate ? compDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—',
+          daysText,
+        ]);
+        row.height = 22;
+
+        row.eachCell({ includeEmpty: true }, (cell, colNo) => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
+          cell.font = { name: 'Arial', size: 9, color: { argb: rowText } };
+          cell.border = tableBorder;
+          cell.alignment = { vertical: 'middle', horizontal: [1,3,5,6,7,8].includes(colNo) ? 'center' : 'left' };
+        });
+
+        // Bold status cell
+        const statusCell = row.getCell(6);
+        const daysCell   = row.getCell(8);
+        if (rowLabel === 'Overdue') {
+          statusCell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFB91C1C' } };
+          daysCell.font   = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFB91C1C' } };
+        } else if (rowLabel === 'Expiring Soon') {
+          statusCell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFC2410C' } };
+          daysCell.font   = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFC2410C' } };
+        } else {
+          statusCell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FF047857' } };
+        }
+      });
+
+      // ─── Colour Legend sheet ───
+      const wsLegend = wb.addWorksheet('📌 Legend');
+      wsLegend.mergeCells('A1:C1');
+      const legTitle = wsLegend.getRow(1);
+      legTitle.height = 28;
+      legTitle.getCell(1).value = 'EXPORT COLOUR LEGEND';
+      legTitle.getCell(1).font  = { bold: true, size: 12, color: { argb: 'FFFFFFFF' }, name: 'Arial' };
+      legTitle.getCell(1).fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } };
+      legTitle.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
+      wsLegend.addRow([]);
+      [
+        ['FFFED7AA', 'FF7C2D12', '🟠 Expiring Soon',  'Completion date within 90 days'],
+        ['FFFECDD3', 'FF991B1B', '🔴 Overdue',         'Completion date already passed'],
+        ['FFF8FAFC', 'FF0F172A', '⚪ Normal',           'More than 90 days remaining'],
+      ].forEach(([bg, text, label, desc]) => {
+        const r = wsLegend.addRow([label, desc, '']);
+        r.eachCell(cell => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+          cell.font = { color: { argb: text }, name: 'Arial', size: 10, bold: true };
+          cell.border = tableBorder;
+          cell.alignment = { vertical: 'middle' };
+        });
+        r.height = 22;
+      });
+      wsLegend.columns = [{ width: 24 }, { width: 38 }, { width: 4 }];
+
+      const buf  = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `CleanMax_Projects_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('✅ Projects exported successfully!', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('❌ Export failed. Please try again.', 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem', position: 'relative' }}>
+
+      {/* ── Page Header ── */}
       <div className="animate-stagger mobile-flex-col" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', width: '100%' }}>
         <div>
           <h1 style={{ fontSize: '2rem' }}>Projects Pipeline</h1>
-          <p className="text-secondary" style={{ marginTop: '0.25rem' }}>Overview of all ongoing and upcoming projects.</p>
+          <p className="text-secondary" style={{ marginTop: '0.25rem' }}>Click any project to view its full portfolio details.</p>
         </div>
-        <div style={{ display: 'flex', gap: '1rem', width: '100%', overflowX: 'auto' }}>
-          <button className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, justifyContent: 'center' }}>
-            <Download size={18} /> Export
-          </button>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+          {/* Export button — hidden from viewers */}
           {state.currentUser?.role !== 'viewer' && (
-            <button onClick={() => setShowDrawer(true)} className="btn-premium" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1, justifyContent: 'center' }}>
+            <button
+              onClick={handleExportProjects}
+              disabled={isExporting}
+              className="btn-ghost"
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.25rem', whiteSpace: 'nowrap', border: '1px solid var(--border-color)', opacity: isExporting ? 0.7 : 1 }}
+            >
+              {isExporting
+                ? <React.Fragment><span style={{ display:'inline-block',width:14,height:14,border:'2px solid rgba(255,255,255,0.4)',borderTopColor:'currentColor',borderRadius:'50%',animation:'spin 0.7s linear infinite'}}/> Exporting...</React.Fragment>
+                : <React.Fragment><Download size={16} /> Export Excel</React.Fragment>
+              }
+            </button>
+          )}
+          {state.currentUser?.role !== 'viewer' && (
+            <button
+              onClick={() => setShowDrawer(true)}
+              className="btn-premium"
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', whiteSpace: 'nowrap' }}
+            >
               <Plus size={18} /> New Project
             </button>
           )}
         </div>
       </div>
 
+      {/* ── Toolbar ── */}
       <div className="animate-stagger delay-1" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', width: '100%', minWidth: 0 }}>
         <div className="mobile-flex-col" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
           <div className="mobile-responsive-width" style={{ position: 'relative', width: '350px' }}>
             <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
-            <input 
-              type="text" 
-              placeholder="Search projects..." 
-              className="premium-input" 
+            <input
+              type="text"
+              placeholder="Search projects..."
+              className="premium-input"
               style={{ paddingLeft: '2.75rem', borderRadius: '99px' }}
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={e => setSearchTerm(e.target.value)}
             />
           </div>
-          
+
           {selectedIds.size > 0 && state.currentUser?.role !== 'viewer' && (
             <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.5rem 1rem', borderRadius: '99px' }}>
               <span style={{ fontWeight: 600, color: 'var(--accent-color)' }}>{selectedIds.size} selected</span>
-              <button onClick={handleDeleteSelected} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'none', padding: '0.35rem 1rem', borderRadius: '99px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
-                <Trash2 size={16} /> Delete
+              <button onClick={handleDeleteSelected} style={{ background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', padding: '0.35rem 1rem', borderRadius: '99px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}>
+                <Trash2 size={16} /> Delete Selected
+              </button>
+              <button onClick={() => setSelectedIds(new Set())} className="btn-ghost" style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}>
+                Clear
               </button>
             </div>
           )}
         </div>
 
+        {/* Select-all-pages banner */}
+        {selectedIds.size > 0 && selectedIds.size < projects.length && selectedIds.size === paginatedProjects.length && (
+          <div style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)', borderRadius: '12px', padding: '0.65rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+            <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+              All <strong style={{ color: 'var(--text-primary)' }}>{paginatedProjects.length}</strong> projects on this page are selected.
+            </span>
+            <button
+              onClick={handleSelectAllPages}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#3b82f6', fontWeight: 700, fontSize: '0.875rem', padding: 0 }}
+            >
+              Select all {projects.length} projects across all pages
+            </button>
+          </div>
+        )}
+        {selectedIds.size === projects.length && projects.length > paginatedProjects.length && (
+          <div style={{ background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)', borderRadius: '12px', padding: '0.65rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem' }}>
+            <span style={{ fontSize: '0.875rem', color: 'var(--text-primary)', fontWeight: 600 }}>
+              ✅ All {projects.length} projects selected across all pages.
+            </span>
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontWeight: 700, fontSize: '0.875rem', padding: 0 }}
+            >
+              Clear Selection
+            </button>
+          </div>
+        )}
+
+        {/* ── Table ── */}
         <div className="table-container">
           <table className="premium-table">
             <thead>
               <tr>
                 <th style={{ width: '40px' }}>
-                  <input 
-                    type="checkbox" 
-                    onChange={handleSelectAll} 
-                    checked={selectedIds.size === projects.length && projects.length > 0} 
-                  />
+                  <input type="checkbox" onChange={handleSelectAll} checked={selectedIds.size > 0 && paginatedProjects.every(p => selectedIds.has(p.id))} />
                 </th>
                 <th>Project Code</th>
                 <th>Project Name</th>
+                <th>Vendor Code</th>
                 <th>Vendor Name</th>
-                <th>Type</th>
                 <th>Capacity</th>
                 <th>Status</th>
                 <th>Last Edited By</th>
-                {state.currentUser?.role !== 'viewer' && (
-                  <th>Actions</th>
-                )}
+                {state.currentUser?.role !== 'viewer' && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {projects.map(p => (
-                <tr key={p.id} onClick={(e) => {
-                  if(e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.closest('button')) {
-                    setSelectedProjectForDetails(p);
-                  }
-                }} style={{ cursor: 'pointer', transition: 'background 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.02)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-                  <td onClick={(e) => e.stopPropagation()}>
+              {paginatedProjects.map(p => (
+                <tr
+                  key={p.id}
+                  onClick={e => {
+                    if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'BUTTON' && !e.target.closest('button')) {
+                      setSelectedProject(p);
+                    }
+                  }}
+                  style={{ cursor: 'pointer', transition: 'background 0.2s' }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = 'rgba(16,185,129,0.04)';
+                    const name = e.currentTarget.querySelector('.project-name-cell');
+                    if (name) name.style.color = 'var(--accent-color)';
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = 'transparent';
+                    const name = e.currentTarget.querySelector('.project-name-cell');
+                    if (name) name.style.color = 'var(--text-primary)';
+                  }}
+                >
+                  <td onClick={e => e.stopPropagation()}>
                     <input type="checkbox" checked={selectedIds.has(p.id)} onChange={() => handleSelect(p.id)} />
                   </td>
-                  <td><strong>{p.projectCode}</strong></td>
-                  <td style={{ fontWeight: 600 }}>{p.projectName}</td>
-                  <td>{p.client}</td>
-                  <td className="text-secondary">{p.type}</td>
-                  <td style={{ fontWeight: 600 }}>{p.capacity} <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{p.unit}</span></td>
+                  <td><strong style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{p.projectCode}</strong></td>
                   <td>
-                    <span className={`status-pill ${getStatusClass(p.status)}`}>
-                      {p.status}
+                    <span className="project-name-cell" style={{ fontWeight: 700, color: 'var(--text-primary)', transition: 'color 0.2s', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      {p.projectName}
+                      <ChevronRight size={13} style={{ opacity: 0.4, flexShrink: 0 }} />
                     </span>
                   </td>
+                  <td><strong style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{getProjectVendorCode(p)}</strong></td>
+                  <td>{p.client}</td>
+                  <td style={{ fontWeight: 600 }}>
+                    {p.capacity} <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{p.unit}</span>
+                  </td>
                   <td>
-                    {(p.lastEditedBy || p.lastEditedById || (p.editedByHistory && p.editedByHistory.length > 0)) ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '120px', overflowY: 'auto', paddingRight: '0.25rem' }}>
-                        {p.editedByHistory && p.editedByHistory.length > 0 ? (
-                          p.editedByHistory.map((h, i) => {
-                            const name = typeof h === 'string' ? h : h.name;
-                            const time = typeof h === 'string' ? (p.lastEditedAt || p.createdAt) : h.time;
-                            return (
-                              <div key={i} style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(0,0,0,0.05)' }}>
-                                <span style={{ color: '#0f172a', fontWeight: 600, fontSize: '0.8rem' }}>{name}</span>
-                                <span style={{ color: '#64748b', fontSize: '0.7rem' }}>{new Date(time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
+                    {(() => {
+                      const effStatus = getProjectEffectiveStatus(p);
+                      const color = statusColors[effStatus] || '#10b981';
+                      return (
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                          background: `${color}18`,
+                          color: color,
+                          border: `1px solid ${color}40`,
+                          padding: '0.25rem 0.75rem', borderRadius: '99px', fontSize: '0.78rem', fontWeight: 700
+                        }}>
+                          <span style={{ width: 6, height: 6, borderRadius: '50%', background: color }} />
+                          {effStatus}
+                        </span>
+                      );
+                    })()}
+                  </td>
+                  <td>
+                    {p.editedByHistory && p.editedByHistory.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', maxHeight: '100px', overflowY: 'auto' }}>
+                        {p.editedByHistory.map((h, i) => {
+                          const name = typeof h === 'string' ? h : h.name;
+                          const role = typeof h === 'object' && h.role ? h.role : 'Admin';
+                          const timeStr = typeof h === 'object' && h?.editedAt ? safeFormatDateTime(h.editedAt, { dateStyle: 'short', timeStyle: 'short' }) : null;
+                          return (
+                            <div key={i} style={{ background: 'var(--bg-secondary)', padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(0,0,0,0.05)', fontSize: '0.75rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{name}</span>
+                                <span style={{ fontSize: '0.65rem', padding: '0.05rem 0.3rem', borderRadius: '4px', background: role.toLowerCase() === 'admin' ? 'rgba(59,130,246,0.15)' : 'rgba(16,185,129,0.15)', color: role.toLowerCase() === 'admin' ? '#3b82f6' : '#10b981', fontWeight: 700 }}>{role}</span>
                               </div>
-                            );
-                          })
-                        ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg-secondary)', padding: '0.35rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(0,0,0,0.05)' }}>
-                            <span style={{ color: '#0f172a', fontWeight: 600, fontSize: '0.8rem' }}>{getEditorName(p)}</span>
-                            <span style={{ color: '#64748b', fontSize: '0.7rem' }}>{new Date(p.lastEditedAt || p.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
-                          </div>
-                        )}
+                              {timeStr && <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>{timeStr}</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : p.lastEditedBy ? (
+                      <div style={{ background: 'var(--bg-secondary)', padding: '0.3rem 0.5rem', borderRadius: '6px', border: '1px solid rgba(0,0,0,0.05)', display: 'inline-block' }}>
+                        <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)' }}>{p.lastEditedBy}</div>
+                        {p.lastEditedAt && <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>{safeFormatDateTime(p.lastEditedAt, { dateStyle: 'short', timeStyle: 'short' })}</div>}
                       </div>
                     ) : (
-                      <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>-</span>
+                      <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>—</span>
                     )}
                   </td>
                   {state.currentUser?.role !== 'viewer' && (
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button onClick={() => setEditingProject(p)} className="btn-ghost" style={{ padding: '0.25rem' }} title="Edit">
-                          <Edit2 size={16} />
-                        </button>
-                      </div>
+                    <td onClick={e => e.stopPropagation()}>
+                      <button onClick={() => setEditingProject(p)} className="btn-ghost" style={{ padding: '0.25rem' }} title="Edit">
+                        <Edit2 size={16} />
+                      </button>
                     </td>
                   )}
                 </tr>
@@ -352,8 +934,39 @@ const Projects = () => {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Bar */}
+        {projects.length > pageSize && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border-color)', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+              Showing <strong>{(currentPage - 1) * pageSize + 1}</strong> to <strong>{Math.min(currentPage * pageSize, projects.length)}</strong> of <strong>{projects.length}</strong> projects
+            </span>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <button
+                className="btn-ghost"
+                disabled={currentPage === 1}
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem', opacity: currentPage === 1 ? 0.5 : 1 }}
+              >
+                Previous
+              </button>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, padding: '0 0.5rem' }}>
+                Page {currentPage} of {Math.ceil(projects.length / pageSize)}
+              </span>
+              <button
+                className="btn-ghost"
+                disabled={currentPage >= Math.ceil(projects.length / pageSize)}
+                onClick={() => setCurrentPage(p => Math.min(Math.ceil(projects.length / pageSize), p + 1))}
+                style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem', opacity: currentPage >= Math.ceil(projects.length / pageSize) ? 0.5 : 1 }}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* ── Modals ── */}
       {showDrawer && (
         <>
           <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 90 }} onClick={() => setShowDrawer(false)} />
@@ -364,119 +977,21 @@ const Projects = () => {
       {editingProject && (
         <>
           <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 90 }} onClick={() => setEditingProject(null)} />
-          <ProjectRegistrationForm 
-            initialData={{
-              ...editingProject,
-              completionDate: new Date(editingProject.completionDate).toISOString().split('T')[0]
-            }} 
+          <ProjectRegistrationForm
+            initialData={{ ...editingProject, completionDate: new Date(editingProject.completionDate || Date.now()).toISOString().split('T')[0] }}
             isEditing={true}
-            onClose={() => setEditingProject(null)} 
+            onClose={() => setEditingProject(null)}
           />
         </>
       )}
 
-      {selectedProjectForDetails && (
-        <ProjectDetailsModal project={selectedProjectForDetails} onClose={() => setSelectedProjectForDetails(null)} />
+      {selectedProject && (
+        <ProjectPortfolioModal
+          project={selectedProject}
+          onClose={() => setSelectedProject(null)}
+          onEdit={state.currentUser?.role !== 'viewer' ? (p) => { setEditingProject(p); } : null}
+        />
       )}
-    </div>
-  );
-};
-
-const ProjectDetailsModal = ({ project, onClose }) => {
-  const { state } = useProcure();
-  
-  const vendorInfo = useMemo(() => {
-    if (!state.vendors) return null;
-    const exactMatch = state.vendors.find(v => v.vendorName === project.client && v.plantName === project.projectName);
-    if (exactMatch) return exactMatch;
-    return state.vendors.find(v => v.vendorName === project.client);
-  }, [project, state.vendors]);
-
-  return (
-    <div className="modal-overlay" onClick={onClose} style={{ zIndex: 1000, padding: '2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)' }}>
-      <div className="modal-content glass-panel" onClick={e => e.stopPropagation()} style={{ maxWidth: '800px', width: '100%', borderRadius: '16px', overflow: 'hidden', padding: 0, border: '1px solid rgba(255,255,255,0.4)', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.1)' }}>
-        
-        <div style={{ padding: '2rem', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', background: 'linear-gradient(135deg, rgba(239,246,255,0.7), rgba(255,255,255,0.2))' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.75rem' }}>
-              <span className={`status-pill ${getStatusClass(project.status)}`}>{project.status}</span>
-              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600, background: 'rgba(0,0,0,0.05)', padding: '0.2rem 0.6rem', borderRadius: '4px' }}><Hash size={12} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/>{project.projectCode}</span>
-            </div>
-            <h2 style={{ fontSize: '2rem', color: 'var(--text-primary)', marginBottom: '0.5rem', fontWeight: 700, letterSpacing: '-0.02em' }}>{project.projectName}</h2>
-            <p style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.75rem', fontWeight: 500 }}><Box size={16} className="text-accent" /> {project.capacity} {project.unit} &nbsp;•&nbsp; <Tag size={16} className="text-accent" /> {project.type}</p>
-          </div>
-          <button onClick={onClose} className="btn-ghost" style={{ padding: '0.5rem', borderRadius: '50%', background: 'var(--bg-primary)' }}>
-            <X size={20} />
-          </button>
-        </div>
-
-        <div style={{ padding: '2rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem', background: 'var(--bg-primary)' }}>
-          
-          <div>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: '1.25rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}><FileText size={18} className="text-accent" /> Vendor & Contract</h3>
-            <div style={{ background: 'var(--bg-secondary)', borderRadius: '12px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', border: '1px solid rgba(0,0,0,0.03)' }}>
-              <div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Vendor / Client</div>
-                <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '1.05rem' }}>{project.client}</div>
-              </div>
-              {vendorInfo ? (
-                <>
-                  <div style={{ display: 'flex', gap: '2rem' }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>PO Number</div>
-                      <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{vendorInfo.poNumber || '-'}</div>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>PR Number</div>
-                      <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{vendorInfo.prNumber || '-'}</div>
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Contract Rate</div>
-                    <div style={{ fontWeight: 600, color: 'var(--accent-color)', fontSize: '1.1rem' }}>₹{vendorInfo.rate} <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>/ unit</span></div>
-                  </div>
-                </>
-              ) : (
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontStyle: 'italic', padding: '1rem', background: 'rgba(0,0,0,0.02)', borderRadius: '8px' }}>No extended vendor/contract details found for this project in the system.</div>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: '1.25rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}><Calendar size={18} className="text-accent" /> Timeline & Location</h3>
-            <div style={{ background: 'var(--bg-secondary)', borderRadius: '12px', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem', border: '1px solid rgba(0,0,0,0.03)' }}>
-              
-              {vendorInfo ? (
-                <>
-                  <div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Location</div>
-                    <div style={{ fontWeight: 600, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '1.05rem' }}>
-                      <MapPin size={16} className="text-accent" style={{ opacity: 0.8 }} /> {vendorInfo.city || vendorInfo.state ? `${vendorInfo.city || ''}${vendorInfo.city && vendorInfo.state ? ', ' : ''}${vendorInfo.state || ''}` : 'Location not specified'} 
-                    </div>
-                    {vendorInfo.region && <div style={{ marginTop: '0.5rem' }}><span style={{ fontSize: '0.75rem', padding: '0.2rem 0.6rem', background: 'rgba(0,0,0,0.05)', borderRadius: '4px', fontWeight: 600, color: 'var(--text-secondary)' }}>{vendorInfo.region} Region</span></div>}
-                  </div>
-                  <div style={{ display: 'flex', gap: '2rem', marginTop: '0.5rem' }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Contract Start</div>
-                      <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{vendorInfo.contractStart ? new Date(vendorInfo.contractStart).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}</div>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Contract End</div>
-                      <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{vendorInfo.contractEnd ? new Date(vendorInfo.contractEnd).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}</div>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '0.25rem' }}>Target Completion</div>
-                  <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{project.completionDate ? new Date(project.completionDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}</div>
-                </div>
-              )}
-            </div>
-          </div>
-
-        </div>
-      </div>
     </div>
   );
 };
