@@ -1071,6 +1071,8 @@ const LiveCodeDisplay = () => {
 const WeeklySummaryModal = ({ onClose }) => {
   const { state, showToast } = useProcure();
   const [copied, setCopied] = useState(false);
+  const [viewMode, setViewMode] = useState('excel'); // 'excel' or 'text'
+  const [downloading, setDownloading] = useState(false);
 
   const vendors = state.vendors || [];
   const projects = state.projects || [];
@@ -1083,8 +1085,127 @@ const WeeklySummaryModal = ({ onClose }) => {
   const activeVendors = vendors.filter(v => (v.status || '').toLowerCase() === 'active');
   const expiringVendors = vendors.filter(v => (v.status || '').toLowerCase() === 'expiring soon');
   const expiredVendors = vendors.filter(v => (v.status || '').toLowerCase() === 'expired');
+  const actionList = [...expiringVendors, ...expiredVendors];
 
   const totalMW = vendors.reduce((sum, v) => sum + (Number(v.plantCapacity) || 0), 0);
+
+  const handleExportWeeklyExcel = async () => {
+    setDownloading(true);
+    showToast('📗 Generating CleanMax Weekly Excel Digest...', 'info');
+    try {
+      const ExcelJS = (await import('exceljs')).default;
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'CleanMax System';
+      wb.created = new Date();
+
+      const ws = wb.addWorksheet('Weekly Executive Digest');
+
+      // Title Banner Row
+      ws.mergeCells('A1:H1');
+      const titleCell = ws.getCell('A1');
+      titleCell.value = `CLEANMAX PROCURE360 — WEEKLY EXECUTIVE DIGEST (${weekStartStr} - ${dateStr})`;
+      titleCell.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } };
+      titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+      ws.getRow(1).height = 35;
+
+      // Executive Summary Metrics Section
+      ws.addRow([]);
+      const mHeader = ws.addRow(['Metric Name', 'Value / Summary']);
+      mHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      mHeader.eachCell(cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF374151' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+
+      const metrics = [
+        ['Total Registered Vendors', vendors.length],
+        ['Active Operational Vendors', activeVendors.length],
+        ['Total Contracting Capacity', `${totalMW.toFixed(2)} MW`],
+        ['Contracts Expiring Soon (30 Days)', expiringVendors.length],
+        ['Expired Contracts (Action Required)', expiredVendors.length],
+        ['Active Projects in Pipeline', projects.length],
+      ];
+
+      metrics.forEach(([k, v]) => {
+        const row = ws.addRow([k, v]);
+        row.getCell(1).font = { bold: true };
+      });
+
+      ws.addRow([]);
+      ws.addRow([]);
+
+      // Action List Section Header
+      ws.mergeCells('A11:H11');
+      const actionTitle = ws.getCell('A11');
+      actionTitle.value = 'ACTION REQUIRED — CONTRACT EXPIRY & RENEWAL BREAKDOWN';
+      actionTitle.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+      actionTitle.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F2937' } };
+      actionTitle.alignment = { vertical: 'middle', horizontal: 'center' };
+      ws.getRow(11).height = 25;
+
+      // Vendor Headers
+      const headers = ['Vendor Code', 'Vendor Name', 'Plant Name', 'Capacity (MW)', 'Rate (₹/kWh)', 'State', 'Contract End', 'Status'];
+      const headerRow = ws.addRow(headers);
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      headerRow.eachCell(cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4B5563' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+
+      // Populate Action Vendors
+      actionList.forEach(v => {
+        const r = ws.addRow([
+          v.vendorCode || '-',
+          v.vendorName || '-',
+          v.plantName || '-',
+          Number(v.plantCapacity || 0).toFixed(2),
+          Number(v.rate || 0).toFixed(2),
+          v.state || '-',
+          v.contractEnd || '-',
+          v.status || '-'
+        ]);
+
+        const statusCell = r.getCell(8);
+        const statusLower = (v.status || '').toLowerCase();
+        if (statusLower.includes('expired')) {
+          statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+          statusCell.font = { color: { argb: 'FF991B1B' }, bold: true };
+        } else if (statusLower.includes('expiring')) {
+          statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF3C7' } };
+          statusCell.font = { color: { argb: 'FF92400E' }, bold: true };
+        }
+      });
+
+      // Auto-fit Column Widths
+      ws.columns.forEach(col => {
+        let maxLen = 15;
+        col.eachCell({ includeEmpty: true }, cell => {
+          const len = String(cell.value || '').length;
+          if (len > maxLen) maxLen = len;
+        });
+        col.width = Math.min(maxLen + 4, 35);
+      });
+
+      const buffer = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `CleanMax_Weekly_Executive_Digest_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showToast('✅ Weekly Executive Digest Excel sheet downloaded!', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('❌ Failed to generate Excel report', 'error');
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   const summaryText = `
 CleanMax Procure360 — Weekly Executive Digest (${weekStartStr} - ${dateStr})
@@ -1116,8 +1237,8 @@ ${expiredVendors.map(v => `- ❌ ${v.vendorName || 'Vendor'} (${v.plantName || '
 
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-      <div className="glass-panel animate-fade-in-up" style={{ width: '100%', maxWidth: '650px', maxHeight: '90vh', overflowY: 'auto', padding: '2rem', background: 'var(--bg-card)', borderRadius: '16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+      <div className="glass-panel animate-fade-in-up" style={{ width: '100%', maxWidth: '850px', maxHeight: '90vh', overflowY: 'auto', padding: '2rem', background: 'var(--bg-card)', borderRadius: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
           <div>
             <h2 style={{ fontSize: '1.35rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               📊 Weekly Executive Summary Digest
@@ -1131,8 +1252,32 @@ ${expiredVendors.map(v => `- ❌ ${v.vendorName || 'Vendor'} (${v.plantName || '
           </button>
         </div>
 
-        {/* Metrics Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', marginBottom: '1.5rem' }}>
+        {/* View Mode Toggle Tabs */}
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.5rem' }}>
+          <button 
+            onClick={() => setViewMode('excel')} 
+            style={{ 
+              padding: '0.45rem 1rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem',
+              background: viewMode === 'excel' ? 'var(--accent-color)' : 'var(--bg-primary)',
+              color: viewMode === 'excel' ? '#fff' : 'var(--text-secondary)'
+            }}
+          >
+            📗 Excel Sheet View
+          </button>
+          <button 
+            onClick={() => setViewMode('text')} 
+            style={{ 
+              padding: '0.45rem 1rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem',
+              background: viewMode === 'text' ? 'var(--accent-color)' : 'var(--bg-primary)',
+              color: viewMode === 'text' ? '#fff' : 'var(--text-secondary)'
+            }}
+          >
+            📄 Text Digest View
+          </button>
+        </div>
+
+        {/* Metrics Summary Cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
           <div style={{ background: 'var(--bg-primary)', padding: '0.85rem', borderRadius: '10px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: 0 }}>Active Vendors</p>
             <p style={{ fontSize: '1.25rem', fontWeight: 700, margin: '0.2rem 0 0 0', color: '#10b981' }}>{activeVendors.length}</p>
@@ -1151,19 +1296,91 @@ ${expiredVendors.map(v => `- ❌ ${v.vendorName || 'Vendor'} (${v.plantName || '
           </div>
         </div>
 
-        {/* Formatted Report Preview */}
-        <div style={{ background: 'var(--bg-primary)', padding: '1rem', borderRadius: '10px', border: '1px solid var(--border-color)', marginBottom: '1.5rem', fontFamily: 'monospace', fontSize: '0.82rem', whiteSpace: 'pre-wrap', color: 'var(--text-primary)', maxHeight: '250px', overflowY: 'auto' }}>
-          {summaryText}
-        </div>
+        {/* View Mode Content */}
+        {viewMode === 'excel' ? (
+          /* Excel Grid Theme Preview */
+          <div style={{ border: '1px solid var(--border-color)', borderRadius: '10px', overflow: 'hidden', marginBottom: '1.25rem' }}>
+            <div style={{ background: '#10b981', color: '#fff', padding: '0.65rem 1rem', fontWeight: 700, fontSize: '0.85rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>📗 CLEANMAX EXCEL SPREADSHEET PREVIEW — WEEKLY REPORT</span>
+              <span style={{ fontSize: '0.75rem', opacity: 0.9 }}>Format: .XLSX</span>
+            </div>
+            <div style={{ overflowX: 'auto', maxHeight: '280px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', fontFamily: 'monospace' }}>
+                <thead>
+                  <tr style={{ background: '#374151', color: '#fff' }}>
+                    <th style={{ padding: '0.5rem 0.75rem', border: '1px solid #4b5563', textAlign: 'left' }}>Vendor Code</th>
+                    <th style={{ padding: '0.5rem 0.75rem', border: '1px solid #4b5563', textAlign: 'left' }}>Vendor Name</th>
+                    <th style={{ padding: '0.5rem 0.75rem', border: '1px solid #4b5563', textAlign: 'left' }}>Plant Name</th>
+                    <th style={{ padding: '0.5rem 0.75rem', border: '1px solid #4b5563', textAlign: 'right' }}>Capacity (MW)</th>
+                    <th style={{ padding: '0.5rem 0.75rem', border: '1px solid #4b5563', textAlign: 'right' }}>Rate (₹/kWh)</th>
+                    <th style={{ padding: '0.5rem 0.75rem', border: '1px solid #4b5563', textAlign: 'center' }}>Contract End</th>
+                    <th style={{ padding: '0.5rem 0.75rem', border: '1px solid #4b5563', textAlign: 'center' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {actionList.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                        No expiring or expired vendors this week. All contracts operational!
+                      </td>
+                    </tr>
+                  ) : (
+                    actionList.map((v, idx) => {
+                      const isExp = (v.status || '').toLowerCase().includes('expired');
+                      return (
+                        <tr key={v.id || idx} style={{ background: idx % 2 === 0 ? 'var(--bg-primary)' : 'var(--bg-app)' }}>
+                          <td style={{ padding: '0.5rem 0.75rem', border: '1px solid var(--border-color)', fontWeight: 600 }}>{v.vendorCode || '-'}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', border: '1px solid var(--border-color)' }}>{v.vendorName || '-'}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', border: '1px solid var(--border-color)' }}>{v.plantName || '-'}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', border: '1px solid var(--border-color)', textAlign: 'right' }}>{Number(v.plantCapacity || 0).toFixed(2)}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', border: '1px solid var(--border-color)', textAlign: 'right' }}>{Number(v.rate || 0).toFixed(2)}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', border: '1px solid var(--border-color)', textAlign: 'center' }}>{v.contractEnd || '-'}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+                            <span style={{ 
+                              padding: '0.15rem 0.5rem', borderRadius: '4px', fontSize: '0.72rem', fontWeight: 700,
+                              background: isExp ? '#fee2e2' : '#fef3c7',
+                              color: isExp ? '#991b1b' : '#92400e',
+                            }}>
+                              {v.status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          /* Formatted Text Report Preview */
+          <div style={{ background: 'var(--bg-primary)', padding: '1rem', borderRadius: '10px', border: '1px solid var(--border-color)', marginBottom: '1.25rem', fontFamily: 'monospace', fontSize: '0.82rem', whiteSpace: 'pre-wrap', color: 'var(--text-primary)', maxHeight: '250px', overflowY: 'auto' }}>
+            {summaryText}
+          </div>
+        )}
 
         {/* Action Bar */}
-        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '0.65rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          <button 
+            onClick={handleExportWeeklyExcel} 
+            disabled={downloading}
+            style={{ 
+              display: 'flex', alignItems: 'center', gap: '0.4rem', 
+              background: '#10b981', color: '#fff', border: 'none', borderRadius: '8px', 
+              padding: '0.45rem 1rem', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' 
+            }}
+          >
+            <Download size={16} /> {downloading ? 'Downloading...' : 'Export Excel (.xlsx)'}
+          </button>
+
           <button onClick={handleCopy} className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.45rem 0.9rem', fontSize: '0.85rem' }}>
-            {copied ? <Check size={16} color="#10b981" /> : <Copy size={16} />} {copied ? 'Copied!' : 'Copy Summary'}
+            {copied ? <Check size={16} color="#10b981" /> : <Copy size={16} />} {copied ? 'Copy Text' : 'Copy Text'}
           </button>
+          
           <button onClick={handlePrint} className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', border: '1px solid var(--border-color)', borderRadius: '8px', padding: '0.45rem 0.9rem', fontSize: '0.85rem' }}>
-            <Download size={16} /> Print / Export PDF
+            <Download size={16} /> Print / PDF
           </button>
+          
           <button onClick={onClose} className="btn-premium" style={{ padding: '0.45rem 1.2rem', fontSize: '0.85rem' }}>
             Close
           </button>
