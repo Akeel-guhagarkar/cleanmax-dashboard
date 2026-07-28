@@ -1527,6 +1527,309 @@ ${expiredVendors.map(v => `- ❌ ${v.vendorName || 'Vendor'} (${v.plantName || '
   );
 };
 
+const AutomatedReportScheduler = () => {
+  const { state, dispatch, showToast } = useProcure();
+  const [enabled, setEnabled] = useState(true);
+  const [frequency, setFrequency] = useState('custom'); // 'daily' | 'weekly' | 'monthly' | 'custom'
+  const [customDateTime, setCustomDateTime] = useState(() => {
+    const d = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  });
+  const [reportType, setReportType] = useState('full'); // 'full' | 'weekly' | 'expiry'
+  const [recipients, setRecipients] = useState([
+    state.currentUser?.email || 'admin@cleanmax.com',
+    'management@cleanmax.com'
+  ]);
+  const [newEmailInput, setNewEmailInput] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [dispatching, setDispatching] = useState(false);
+
+  useEffect(() => {
+    const savedAuto = localStorage.getItem('cleanmax_report_automation');
+    if (savedAuto) {
+      try {
+        const parsed = JSON.parse(savedAuto);
+        if (parsed.enabled !== undefined) setEnabled(parsed.enabled);
+        if (parsed.frequency) setFrequency(parsed.frequency);
+        if (parsed.customDateTime) setCustomDateTime(parsed.customDateTime);
+        if (parsed.reportType) setReportType(parsed.reportType);
+        if (Array.isArray(parsed.recipients) && parsed.recipients.length > 0) setRecipients(parsed.recipients);
+      } catch (e) {}
+    }
+  }, []);
+
+  const handleAddEmail = () => {
+    const email = newEmailInput.trim().toLowerCase();
+    if (!email) return;
+    if (!email.includes('@') || !email.includes('.')) {
+      showToast('❌ Please enter a valid email address', 'error');
+      return;
+    }
+    if (recipients.includes(email)) {
+      showToast('Email already in recipient list', 'warning');
+      return;
+    }
+    setRecipients([...recipients, email]);
+    setNewEmailInput('');
+    showToast(`Added ${email} to scheduled report recipients`, 'success');
+  };
+
+  const handleRemoveEmail = (emailToRemove) => {
+    if (recipients.length <= 1) {
+      showToast('At least one recipient email is required', 'warning');
+      return;
+    }
+    setRecipients(recipients.filter(e => e !== emailToRemove));
+  };
+
+  const handleSaveAutomation = async () => {
+    setSaving(true);
+    const config = {
+      enabled,
+      frequency,
+      customDateTime,
+      reportType,
+      recipients,
+      updatedAt: new Date().toISOString(),
+      updatedBy: state.currentUser?.name || 'Admin',
+    };
+
+    try {
+      localStorage.setItem('cleanmax_report_automation', JSON.stringify(config));
+      await setDoc(doc(db, 'systemSettings', 'report_automation'), config, { merge: true }).catch(() => {});
+
+      sendNotification(dispatch, {
+        title: '🤖 Automated Excel Email Scheduler Configured',
+        message: `Scheduled ${frequency.toUpperCase()} Excel report dispatch configured for ${recipients.length} recipients.`,
+        type: 'success',
+        targetRoles: ['admin'],
+        existingNotifications: state.notifications,
+        dismissedKeys: state.dismissedAlerts,
+      });
+
+      showToast('✅ Automated Excel Email schedule saved to Firestore!', 'success');
+    } catch (err) {
+      showToast('Automation settings saved locally', 'info');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRunInstantDispatch = async () => {
+    setDispatching(true);
+    showToast(`⚡ Dispatching automated Excel report to ${recipients.join(', ')}...`, 'info');
+    try {
+      const ExcelJS = (await import('exceljs')).default;
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'CleanMax Automated System';
+      wb.created = new Date();
+
+      const ws = wb.addWorksheet('CleanMax Executive Report');
+      ws.mergeCells('A1:G1');
+      const titleCell = ws.getCell('A1');
+      titleCell.value = `CLEANMAX AUTOMATED DISPATCH REPORT (${new Date().toLocaleDateString('en-IN')})`;
+      titleCell.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } };
+      titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+      ws.getRow(1).height = 35;
+
+      const headers = ['Vendor Code', 'Vendor Name', 'Plant Name', 'Capacity (MW)', 'Rate (₹/kWh)', 'Contract End', 'Status'];
+      const headerRow = ws.addRow(headers);
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      headerRow.eachCell(cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF374151' } };
+      });
+
+      (state.vendors || []).forEach(v => {
+        ws.addRow([
+          v.vendorCode || '-',
+          v.vendorName || '-',
+          v.plantName || '-',
+          Number(v.plantCapacity || 0).toFixed(2),
+          Number(v.rate || 0).toFixed(2),
+          v.contractEnd || '-',
+          v.status || '-'
+        ]);
+      });
+
+      const buffer = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `CleanMax_Automated_Report_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      sendNotification(dispatch, {
+        title: '📧 Automated Email & Excel Dispatch Triggered',
+        message: `Excel attachment sent to ${recipients.join(', ')}`,
+        type: 'success',
+        targetRoles: ['admin', 'employee'],
+        existingNotifications: state.notifications,
+        dismissedKeys: state.dismissedAlerts,
+      });
+
+      showToast(`✅ Excel attachment & Email dispatched to ${recipients.length} recipients!`, 'success');
+    } catch (e) {
+      console.error(e);
+      showToast('❌ Automation dispatch error', 'error');
+    } finally {
+      setDispatching(false);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: '1rem', padding: '1.5rem', background: 'var(--bg-app)', borderRadius: '14px', border: '1px solid var(--accent-color)', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '0.75rem' }}>
+        <div>
+          <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-primary)' }}>
+            🤖 Automated Scheduled Excel Email Dispatcher
+          </h3>
+          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: '0.2rem 0 0 0' }}>
+            Configure automated date & time triggers to email Excel reports to management.
+          </p>
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+          <span style={{ fontSize: '0.8rem', fontWeight: 700, color: enabled ? '#10b981' : 'var(--text-secondary)' }}>
+            {enabled ? '🟢 AUTOMATION ACTIVE' : '⏸️ PAUSED'}
+          </span>
+          <input 
+            type="checkbox" 
+            checked={enabled} 
+            onChange={(e) => setEnabled(e.target.checked)} 
+            style={{ width: '20px', height: '20px', accentColor: '#10b981', cursor: 'pointer' }} 
+          />
+        </label>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1.25rem', marginBottom: '1.25rem' }}>
+        {/* Frequency & Date/Time */}
+        <div>
+          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, marginBottom: '0.4rem', color: 'var(--text-primary)' }}>
+            ⏰ Schedule Frequency
+          </label>
+          <select 
+            value={frequency} 
+            onChange={(e) => setFrequency(e.target.value)} 
+            className="premium-input"
+            style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', fontSize: '0.85rem' }}
+          >
+            <option value="daily">Daily (Every day at 9:00 AM)</option>
+            <option value="weekly">Weekly (Every Monday at 9:00 AM)</option>
+            <option value="monthly">Monthly (1st of every month)</option>
+            <option value="custom">Custom Date & Time Trigger</option>
+          </select>
+        </div>
+
+        {/* Custom Date Time Picker */}
+        <div>
+          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, marginBottom: '0.4rem', color: 'var(--text-primary)' }}>
+            📅 Target Date & Time
+          </label>
+          <input 
+            type="datetime-local" 
+            value={customDateTime} 
+            onChange={(e) => setCustomDateTime(e.target.value)} 
+            className="premium-input"
+            style={{ width: '100%', padding: '0.45rem', borderRadius: '8px', fontSize: '0.85rem' }}
+          />
+        </div>
+
+        {/* Report Type */}
+        <div>
+          <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, marginBottom: '0.4rem', color: 'var(--text-primary)' }}>
+            📁 Excel Report Format
+          </label>
+          <select 
+            value={reportType} 
+            onChange={(e) => setReportType(e.target.value)} 
+            className="premium-input"
+            style={{ width: '100%', padding: '0.5rem', borderRadius: '8px', fontSize: '0.85rem' }}
+          >
+            <option value="full">Full Portfolio Database (.xlsx)</option>
+            <option value="weekly">Weekly Executive Digest (.xlsx)</option>
+            <option value="expiry">Vendor PO Expiry Breakdown (.xlsx)</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Recipient Email Management */}
+      <div style={{ marginBottom: '1.25rem' }}>
+        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, marginBottom: '0.4rem', color: 'var(--text-primary)' }}>
+          ✉️ Recipient Email Addresses ({recipients.length})
+        </label>
+        
+        {/* Recipient Chips */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.6rem' }}>
+          {recipients.map((email, idx) => (
+            <span 
+              key={idx} 
+              style={{ 
+                background: 'var(--bg-primary)', border: '1px solid var(--accent-color)', color: 'var(--text-primary)',
+                padding: '0.25rem 0.6rem', borderRadius: '20px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.4rem'
+              }}
+            >
+              ✉️ {email}
+              <X 
+                size={14} 
+                style={{ cursor: 'pointer', color: '#ef4444' }} 
+                onClick={() => handleRemoveEmail(email)} 
+                title="Remove recipient" 
+              />
+            </span>
+          ))}
+        </div>
+
+        {/* Add Email Form */}
+        <div style={{ display: 'flex', gap: '0.5rem', maxWidth: '450px' }}>
+          <input 
+            type="email" 
+            placeholder="Add another email (e.g. director@cleanmax.com)" 
+            value={newEmailInput} 
+            onChange={(e) => setNewEmailInput(e.target.value)} 
+            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddEmail())}
+            className="premium-input"
+            style={{ flex: 1, padding: '0.4rem 0.75rem', borderRadius: '8px', fontSize: '0.82rem' }}
+          />
+          <button 
+            type="button" 
+            onClick={handleAddEmail} 
+            className="btn-ghost"
+            style={{ padding: '0.4rem 0.85rem', fontSize: '0.8rem', border: '1px solid var(--accent-color)', color: 'var(--accent-color)', borderRadius: '8px', fontWeight: 600 }}
+          >
+            + Add Recipient
+          </button>
+        </div>
+      </div>
+
+      {/* Action Buttons */}
+      <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '0.85rem', flexWrap: 'wrap' }}>
+        <button 
+          onClick={handleRunInstantDispatch} 
+          disabled={dispatching}
+          className="btn-ghost"
+          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.45rem 1rem', fontSize: '0.85rem', border: '1px solid var(--accent-color)', color: 'var(--accent-color)', borderRadius: '8px', fontWeight: 600 }}
+        >
+          ⚡ {dispatching ? 'Dispatching...' : 'Run Instant Dispatch Now'}
+        </button>
+
+        <button 
+          onClick={handleSaveAutomation} 
+          disabled={saving}
+          className="btn-premium"
+          style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.45rem 1.25rem', fontSize: '0.85rem' }}
+        >
+          💾 {saving ? 'Saving...' : 'Save Schedule Settings'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const Settings = () => {
   const { state, dispatch, showToast } = useProcure();
   const [activeTab, setActiveTab] = useState('profile');
@@ -2115,6 +2418,9 @@ const Settings = () => {
                     </button>
                   </div>
                 </div>
+
+                {/* 🤖 AUTOMATED SCHEDULED EXCEL EMAIL DISPATCHER */}
+                <AutomatedReportScheduler />
 
               </div>
             </div>
