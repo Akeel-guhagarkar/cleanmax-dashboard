@@ -27,9 +27,9 @@ export const REGION_COLORS = {
 
 export const REGION_CENTERS = {
   'North': [77, 28.5],
-  'West': [72, 22.5],
+  'West': [73, 21.5],
   'East': [85, 24.5],
-  'South': [78, 14.5]
+  'South': [77.5, 12.0]
 };
 
 export const normalizeStatus = (status) => String(status || '').toLowerCase().trim();
