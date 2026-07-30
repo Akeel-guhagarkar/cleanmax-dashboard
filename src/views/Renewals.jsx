@@ -566,7 +566,6 @@ const Renewals = () => {
             <option value="South">South</option>
             <option value="West">West</option>
             <option value="East">East</option>
-            <option value="Central">Central</option>
           </select>
 
           <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>

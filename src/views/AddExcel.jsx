@@ -763,7 +763,7 @@ const AddExcel = () => {
                         </td>
                         <td>
                           <select className="premium-input" style={{ padding: '0.25rem 0.5rem', width: '100px' }} value={editFormData.region} onChange={(e) => handleEditChange(e, 'region')}>
-                            {['North', 'South', 'East', 'West', 'Central'].map(r => <option key={r} value={r}>{r}</option>)}
+                            {['North', 'South', 'East', 'West'].map(r => <option key={r} value={r}>{r}</option>)}
                           </select>
                         </td>
                         <td>

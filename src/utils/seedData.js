@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { addDays, subDays, isBefore, isAfter, differenceInDays } from 'date-fns';
 import { STATE_TO_REGION, parseFlexibleDate, formatDateToISO } from './constants.js';
 
-export const REGIONS = ['North', 'South', 'East', 'West', 'Central'];
+export const REGIONS = ['North', 'South', 'East', 'West'];
 export const STATUSES = ['Active', 'Expiring Soon', 'Expired'];
 
 export const calculateStatus = (endDate) => {

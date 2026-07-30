@@ -3,11 +3,9 @@ export const STATE_TO_REGION = {
   'Jammu and Kashmir': 'North', 'Himachal Pradesh': 'North', 'Punjab': 'North', 'Chandigarh': 'North',
   'Uttaranchal': 'North', 'Haryana': 'North', 'Delhi': 'North', 'Uttar Pradesh': 'North',
   
-  // West
+  // West (including MP, Chhattisgarh)
   'Rajasthan': 'West', 'Gujarat': 'West', 'Maharashtra': 'West', 'Goa': 'West', 'Dadra and Nagar Haveli': 'West', 'Daman and Diu': 'West',
-  
-  // Central
-  'Madhya Pradesh': 'Central', 'Chhattisgarh': 'Central',
+  'Madhya Pradesh': 'West', 'Chhattisgarh': 'West',
   
   // East & North East
   'Bihar': 'East', 'Jharkhand': 'East', 'Orissa': 'East', 'West Bengal': 'East', 'Sikkim': 'East',
@@ -22,7 +20,6 @@ export const STATE_TO_REGION = {
 export const REGION_COLORS = {
   'North': 'var(--region-north)',
   'West': 'var(--region-west)',
-  'Central': 'var(--region-central)',
   'East': 'var(--region-east)',
   'South': 'var(--region-south)',
   'Unknown': '#cbd5e1'
@@ -31,7 +28,6 @@ export const REGION_COLORS = {
 export const REGION_CENTERS = {
   'North': [77, 28.5],
   'West': [72, 22.5],
-  'Central': [79, 23.5],
   'East': [85, 24.5],
   'South': [78, 14.5]
 };
@@ -39,8 +35,8 @@ export const REGION_CENTERS = {
 export const normalizeStatus = (status) => String(status || '').toLowerCase().trim();
 
 /**
- * Normalizes a region string to one of the 5 standard geographic regions:
- * North, South, West, East, or Central.
+ * Normalizes a region string to one of the 4 standard geographic regions:
+ * North, South, West, or East.
  * Maps state names, city names, and abbreviations (e.g. Raj., UP, Hr, Kolkata, Assam)
  * directly to their respective primary regions.
  */
@@ -51,16 +47,15 @@ export const normalizeRegion = (regionStr, stateStr, cityStr) => {
   const s = combined.toLowerCase();
 
   // 1. Direct standard region keyword matching
-  if (/\b(west|wr)\b/i.test(s)) return 'West';
+  if (/\b(west|wr|central|cr)\b/i.test(s)) return 'West';
   if (/\b(south|sr)\b/i.test(s)) return 'South';
   if (/\b(north|nr)\b/i.test(s)) return 'North';
   if (/\b(east|er)\b/i.test(s)) return 'East';
-  if (/\b(central|cr)\b/i.test(s)) return 'Central';
 
   // 2. State & City Mapping to Primary Regions:
 
-  // WEST (Maharashtra, Gujarat, Goa, Daman & Diu, Dadra & Nagar Haveli)
-  if (/\b(maharashtra|mh|mumbai|pune|nagpur|nashik|thane|gujarat|gj|ahmedabad|surat|vadodara|rajkot|goa|daman|diu|dadra)\b/i.test(s)) {
+  // WEST (Maharashtra, Gujarat, Goa, Daman & Diu, Dadra & Nagar Haveli, MP, Chhattisgarh)
+  if (/\b(maharashtra|mh|mumbai|pune|nagpur|nashik|thane|gujarat|gj|ahmedabad|surat|vadodara|rajkot|goa|daman|diu|dadra|madhya\s*pradesh|mp|bhopal|indore|gwalior|jabalpur|chhattisgarh|cg|raipur|bilaspur)\b/i.test(s)) {
     return 'West';
   }
 
@@ -77,11 +72,6 @@ export const normalizeRegion = (regionStr, stateStr, cityStr) => {
   // EAST (West Bengal, Kolkata, Assam, Bihar, Jharkhand, Odisha, Sikkim, NE states)
   if (/\b(west\s*bengal|wb|kolkata|calcutta|howrah|siliguri|assam|guwahati|bihar|patna|jharkhand|ranchi|odisha|orissa|bhubaneswar|sikkim|meghalaya|manipur|mizoram|nagaland|tripura|arunachal)\b/i.test(s)) {
     return 'East';
-  }
-
-  // CENTRAL (MP, Chhattisgarh)
-  if (/\b(madhya\s*pradesh|mp|bhopal|indore|gwalior|jabalpur|chhattisgarh|cg|raipur|bilaspur)\b/i.test(s)) {
-    return 'Central';
   }
 
   // Fallback to first clean word

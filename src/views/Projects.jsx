@@ -187,7 +187,7 @@ const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = fals
               <div>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Region</label>
                 <select name="region" className="premium-input project-modal-input" value={formData.region || 'South'} onChange={handleChange}>
-                  {['North', 'South', 'East', 'West', 'Central'].map(r => <option key={r} value={r}>{r}</option>)}
+                  {['North', 'South', 'East', 'West'].map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               </div>
               <div>
