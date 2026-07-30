@@ -5,7 +5,7 @@ import { MapContainer, TileLayer, GeoJSON, Marker, Popup, useMap } from 'react-l
 import L from 'leaflet';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
-import { STATE_TO_REGION, REGION_COLORS, REGION_CENTERS, getStatusClass, getCapacityInMW } from '../utils/constants';
+import { STATE_TO_REGION, REGION_COLORS, REGION_CENTERS, getStatusClass, getCapacityInMW, normalizeRegion } from '../utils/constants';
 import 'leaflet/dist/leaflet.css';
 import { createContainerComponent, useLeafletContext } from '@react-leaflet/core';
 import 'leaflet.markercluster';
