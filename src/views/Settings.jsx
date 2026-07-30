@@ -583,19 +583,20 @@ const RecycleBin = () => {
   };
 
   const handlePermanentDelete = (r) => {
+    const targetId = r._recycleBinId || r.id;
     if (window.confirm(`⚠️ Permanently delete "${getLabel(r)}"?\n\nThis action CANNOT be undone.`)) {
-      dispatch({ type: 'PERMANENT_DELETE', payload: r._recycleBinId });
+      dispatch({ type: 'PERMANENT_DELETE', payload: targetId });
       showToast('Permanently deleted from system', 'success');
     }
   };
 
-  const isAllSelected = filtered.length > 0 && filtered.every(r => selectedIds.has(r._recycleBinId));
+  const isAllSelected = filtered.length > 0 && filtered.every(r => selectedIds.has(r._recycleBinId || r.id));
 
   const handleSelectAll = () => {
     if (isAllSelected) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(filtered.map(r => r._recycleBinId)));
+      setSelectedIds(new Set(filtered.map(r => r._recycleBinId || r.id)));
     }
   };
 
@@ -626,6 +627,7 @@ const RecycleBin = () => {
 
   const handleClearAll = () => {
     if (window.confirm(`⚠️ PERMANENTLY DELETE ALL ${state.deletedRecords?.length} records from the Recycle Bin?\n\nThis CANNOT be undone. All data will be lost forever.`)) {
+      try { localStorage.removeItem('cleanmax_deleted_records'); } catch (e) {}
       dispatch({ type: 'CLEAR_RECYCLE_BIN' });
       setSelectedIds(new Set());
       setConfirmClear(false);
