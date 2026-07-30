@@ -2,7 +2,7 @@ import React, { createContext, useReducer, useEffect, useContext, useState } fro
 import { SEED_VENDORS, SEED_USERS, SEED_PROJECTS, SEED_ARCHIVED_CONTRACTS, calculateStatus } from '../utils/seedData';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../firebase';
-import { doc, onSnapshot, setDoc, deleteDoc, writeBatch, collection } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc, deleteDoc, writeBatch, collection, getDocs } from 'firebase/firestore';
 import { normalizeRegion, formatDateToISO, parseFlexibleDate } from '../utils/constants';
 import { notifyRenewal, notifyDeletion, notifyNewVendor, notifyNewProject, notifyNewUser, playNotificationSound } from '../utils/notify';
 
@@ -845,7 +845,8 @@ export const ProcureProvider = ({ children }) => {
           break;
         }
         case 'RESTORE_DELETED': {
-          const record = state.deletedRecords.find(r => r._recycleBinId === action.payload);
+          const targetId = action.payload;
+          const record = (state.deletedRecords || []).find(r => r._recycleBinId === targetId || r.id === targetId);
           if (record) {
             const { _deletedAt, _deletedBy, _deletedByRole, _recordType, _recycleBinId, ...cleanRecord } = record;
             let coll = 'vendors';
@@ -855,7 +856,13 @@ export const ProcureProvider = ({ children }) => {
             if (_recordType !== 'upload') {
               await setDoc(doc(db, coll, cleanRecord.id), cleanRecord, { merge: true });
             }
-            await deleteDoc(doc(db, 'deletedRecords', action.payload));
+            const ops = [
+              { type: 'delete', ref: doc(db, 'deletedRecords', targetId) }
+            ];
+            if (record._recycleBinId && record._recycleBinId !== targetId) {
+              ops.push({ type: 'delete', ref: doc(db, 'deletedRecords', record._recycleBinId) });
+            }
+            await commitOpsInParallel(ops);
           }
           break;
         }
@@ -876,32 +883,49 @@ export const ProcureProvider = ({ children }) => {
               ops.push({ type: 'set', ref: doc(db, coll, cleanRecord.id), data: cleanRecord });
             }
             ops.push({ type: 'delete', ref: doc(db, 'deletedRecords', rId) });
+            if (r.id && r.id !== rId) {
+              ops.push({ type: 'delete', ref: doc(db, 'deletedRecords', r.id) });
+            }
           });
 
           await commitOpsInParallel(ops);
           break;
         }
-        case 'PERMANENT_DELETE':
-          if (action.payload) {
-            await deleteDoc(doc(db, 'deletedRecords', action.payload));
+        case 'PERMANENT_DELETE': {
+          const targetId = action.payload;
+          if (targetId) {
+            const ops = [{ type: 'delete', ref: doc(db, 'deletedRecords', targetId) }];
+            if (!targetId.startsWith('del-')) {
+              ops.push({ type: 'delete', ref: doc(db, 'deletedRecords', `del-${targetId}`) });
+              ops.push({ type: 'delete', ref: doc(db, 'deletedRecords', `del-v-${targetId}`) });
+              ops.push({ type: 'delete', ref: doc(db, 'deletedRecords', `del-p-${targetId}`) });
+            }
+            await commitOpsInParallel(ops);
           }
           break;
+        }
         case 'PERMANENT_DELETE_MANY': {
           const ids = action.payload || [];
-          const ops = ids.map(id => ({ type: 'delete', ref: doc(db, 'deletedRecords', id) }));
+          const ops = [];
+          ids.forEach(id => {
+            ops.push({ type: 'delete', ref: doc(db, 'deletedRecords', id) });
+            if (!id.startsWith('del-')) {
+              ops.push({ type: 'delete', ref: doc(db, 'deletedRecords', `del-${id}`) });
+              ops.push({ type: 'delete', ref: doc(db, 'deletedRecords', `del-v-${id}`) });
+              ops.push({ type: 'delete', ref: doc(db, 'deletedRecords', `del-p-${id}`) });
+            }
+          });
           await commitOpsInParallel(ops);
           break;
         }
         case 'CLEAR_RECYCLE_BIN': {
-          const recordsToDelete = [...(state.deletedRecords || [])];
-          const ops = [];
-          for (const r of recordsToDelete) {
-            const rId = r._recycleBinId || r.id;
-            if (rId) {
-              ops.push({ type: 'delete', ref: doc(db, 'deletedRecords', rId) });
-            }
+          try {
+            const snap = await getDocs(collection(db, 'deletedRecords'));
+            const ops = snap.docs.map(docSnap => ({ type: 'delete', ref: doc(db, 'deletedRecords', docSnap.id) }));
+            await commitOpsInParallel(ops);
+          } catch (e) {
+            console.error("Error clearing recycle bin in Firestore:", e);
           }
-          await commitOpsInParallel(ops);
           break;
         }
         case 'ADD_PROJECT':
