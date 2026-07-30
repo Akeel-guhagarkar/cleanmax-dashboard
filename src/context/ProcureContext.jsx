@@ -463,6 +463,31 @@ const vendorReducer = (state, action) => {
       const vendorIdsToDelete = new Set(sh.vendorIds || []);
       const projectIdsToDelete = new Set(sh.projectIds || []);
 
+      if (sh.uploadedRows && Array.isArray(sh.uploadedRows)) {
+        sh.uploadedRows.forEach(row => {
+          const rowCode = (row.vendorCode || '').toLowerCase().trim();
+          const rowName = (row.vendorName || '').toLowerCase().trim();
+          const rowPlant = (row.plantName || '').toLowerCase().trim();
+
+          state.vendors.forEach(v => {
+            const vCode = (v.vendorCode || '').toLowerCase().trim();
+            const vName = (v.vendorName || '').toLowerCase().trim();
+            const vPlant = (v.plantName || '').toLowerCase().trim();
+            if ((rowPlant && vPlant === rowPlant) && ((rowCode && vCode === rowCode) || (rowName && vName === rowName))) {
+              vendorIdsToDelete.add(v.id);
+            }
+          });
+
+          state.projects.forEach(p => {
+            const pName = (p.projectName || '').toLowerCase().trim();
+            const client = (p.client || '').toLowerCase().trim();
+            if ((rowPlant && pName === rowPlant) && ((rowName && client === rowName) || (rowCode && client === rowCode))) {
+              projectIdsToDelete.add(p.id);
+            }
+          });
+        });
+      }
+
       // Fallback matching for legacy records without explicit vendorIds array
       if (vendorIdsToDelete.size === 0 && sh.recordsCount > 0) {
         state.vendors.forEach(v => {
@@ -490,11 +515,19 @@ const vendorReducer = (state, action) => {
 
       const delUpload = { ...sh, _deletedAt: new Date().toISOString(), _deletedBy: action.meta?.deletedBy || 'Admin', _deletedByRole: action.meta?.deletedByRole || 'admin', _recordType: 'upload', _recycleBinId: `del-${sh.id}` };
 
+      const newVendors = state.vendors.filter(v => !vendorIdsToDelete.has(v.id));
+      const newProjects = state.projects.filter(p => !projectIdsToDelete.has(p.id));
+
+      try {
+        localStorage.setItem('cleanmax_vendors', JSON.stringify(newVendors));
+        localStorage.setItem('cleanmax_projects', JSON.stringify(newProjects));
+      } catch (e) {}
+
       return {
         ...state,
         uploadHistory: state.uploadHistory.filter(h => h.id !== action.payload),
-        vendors: state.vendors.filter(v => !vendorIdsToDelete.has(v.id)),
-        projects: state.projects.filter(p => !projectIdsToDelete.has(p.id)),
+        vendors: newVendors,
+        projects: newProjects,
         deletedRecords: [delUpload, ...deletedVendors, ...deletedProjects, ...state.deletedRecords]
       };
     }
@@ -1067,16 +1100,40 @@ export const ProcureProvider = ({ children }) => {
         case 'DELETE_UPLOAD_HISTORY': {
           const historyRecord = state.uploadHistory.find(h => h.id === action.payload);
           if (historyRecord) {
-            const ops = [];
-            if (historyRecord.vendorIds) {
-              for (const vId of historyRecord.vendorIds) {
-                ops.push({ type: 'delete', ref: doc(db, 'vendors', vId) });
-              }
+            const vendorIdsToDelete = new Set(historyRecord.vendorIds || []);
+            const projectIdsToDelete = new Set(historyRecord.projectIds || []);
+
+            if (historyRecord.uploadedRows && Array.isArray(historyRecord.uploadedRows)) {
+              historyRecord.uploadedRows.forEach(row => {
+                const rowCode = (row.vendorCode || '').toLowerCase().trim();
+                const rowName = (row.vendorName || '').toLowerCase().trim();
+                const rowPlant = (row.plantName || '').toLowerCase().trim();
+
+                (state.vendors || []).forEach(v => {
+                  const vCode = (v.vendorCode || '').toLowerCase().trim();
+                  const vName = (v.vendorName || '').toLowerCase().trim();
+                  const vPlant = (v.plantName || '').toLowerCase().trim();
+                  if ((rowPlant && vPlant === rowPlant) && ((rowCode && vCode === rowCode) || (rowName && vName === rowName))) {
+                    vendorIdsToDelete.add(v.id);
+                  }
+                });
+
+                (state.projects || []).forEach(p => {
+                  const pName = (p.projectName || '').toLowerCase().trim();
+                  const client = (p.client || '').toLowerCase().trim();
+                  if ((rowPlant && pName === rowPlant) && ((rowName && client === rowName) || (rowCode && client === rowCode))) {
+                    projectIdsToDelete.add(p.id);
+                  }
+                });
+              });
             }
-            if (historyRecord.projectIds) {
-              for (const pId of historyRecord.projectIds) {
-                ops.push({ type: 'delete', ref: doc(db, 'projects', pId) });
-              }
+
+            const ops = [];
+            for (const vId of vendorIdsToDelete) {
+              ops.push({ type: 'delete', ref: doc(db, 'vendors', vId) });
+            }
+            for (const pId of projectIdsToDelete) {
+              ops.push({ type: 'delete', ref: doc(db, 'projects', pId) });
             }
             ops.push({ type: 'delete', ref: doc(db, 'uploadHistory', action.payload) });
             await commitOpsInParallel(ops);
@@ -1087,14 +1144,41 @@ export const ProcureProvider = ({ children }) => {
           const historyId = action.payload;
           const historyRecord = (state.uploadHistory || []).find(h => h.id === historyId);
           if (historyRecord) {
-            const vendorIds = Array.from(new Set(historyRecord.vendorIds || []));
-            const projectIds = Array.from(new Set(historyRecord.projectIds || []));
+            const vendorIdsToDelete = new Set(historyRecord.vendorIds || []);
+            const projectIdsToDelete = new Set(historyRecord.projectIds || []);
+
+            if (historyRecord.uploadedRows && Array.isArray(historyRecord.uploadedRows)) {
+              historyRecord.uploadedRows.forEach(row => {
+                const rowCode = (row.vendorCode || '').toLowerCase().trim();
+                const rowName = (row.vendorName || '').toLowerCase().trim();
+                const rowPlant = (row.plantName || '').toLowerCase().trim();
+
+                (state.vendors || []).forEach(v => {
+                  const vCode = (v.vendorCode || '').toLowerCase().trim();
+                  const vName = (v.vendorName || '').toLowerCase().trim();
+                  const vPlant = (v.plantName || '').toLowerCase().trim();
+                  if ((rowPlant && vPlant === rowPlant) && ((rowCode && vCode === rowCode) || (rowName && vName === rowName))) {
+                    vendorIdsToDelete.add(v.id);
+                  }
+                });
+
+                (state.projects || []).forEach(p => {
+                  const pName = (p.projectName || '').toLowerCase().trim();
+                  const client = (p.client || '').toLowerCase().trim();
+                  if ((rowPlant && pName === rowPlant) && ((rowName && client === rowName) || (rowCode && client === rowCode))) {
+                    projectIdsToDelete.add(p.id);
+                  }
+                });
+              });
+            }
+
+            const vendorIds = Array.from(vendorIdsToDelete);
+            const projectIds = Array.from(projectIdsToDelete);
             const deletedBy = action.meta?.deletedBy || state.currentUser?.name || 'Admin';
             const deletedByRole = action.meta?.deletedByRole || state.currentUser?.role || 'admin';
             const now = new Date().toISOString();
 
             const ops = [];
-
             const delUpload = { ...historyRecord, _deletedAt: now, _deletedBy: deletedBy, _deletedByRole: deletedByRole, _recordType: 'upload', _recycleBinId: `del-${historyId}` };
             ops.push({ type: 'set', ref: doc(db, 'deletedRecords', `del-${historyId}`), data: delUpload });
             ops.push({ type: 'delete', ref: doc(db, 'uploadHistory', historyId) });
