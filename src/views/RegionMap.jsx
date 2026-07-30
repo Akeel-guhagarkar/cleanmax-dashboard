@@ -110,20 +110,21 @@ const createClusterCustomIcon = function (cluster) {
              display: flex;
              justify-content: center;
              align-items: center;
-             width: 32px;
-             height: 32px;
+             width: 26px;
+             height: 26px;
              background: rgba(255, 255, 255, 0.95);
              color: #0f172a;
              border: 2px solid #ffffff;
              border-radius: 50%;
-             box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), 0 0 15px rgba(255, 255, 255, 0.6);
+             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4), 0 0 12px rgba(255, 255, 255, 0.6);
              font-weight: 800;
-             font-size: 13px;
+             font-size: 11px;
+             animation: pulse 2s infinite;
              transition: all 0.2s ease;
            ">${cluster.getChildCount()}</span>`,
     className: 'custom-marker-cluster-circle',
-    iconSize: L.point(32, 32, true),
-    iconAnchor: L.point(16, 16),
+    iconSize: L.point(26, 26, true),
+    iconAnchor: L.point(13, 13),
   });
 };
 
@@ -322,7 +323,7 @@ export const IndiaMap = ({ selectedRegion, onRegionClick, hoveredState, setHover
           clusterRef={clusterInstanceRef}
           iconCreateFunction={createClusterCustomIcon}
           showCoverageOnHover={false}
-          maxClusterRadius={50}
+          maxClusterRadius={25}
         >
           {vendors.map(vendor => {
             if (selectedRegion && selectedRegion !== vendor.region) return null;
