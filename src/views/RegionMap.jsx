@@ -104,25 +104,69 @@ const PopupController = ({ focusedVendor, clusterRef, markerRefsMap }) => {
   return null;
 };
 
+const getStateAbbr = (stateName) => {
+  if (!stateName) return '';
+  const s = String(stateName).trim();
+  if (/maharashtra/i.test(s)) return 'MH';
+  if (/rajasthan/i.test(s)) return 'RJ';
+  if (/karnataka/i.test(s)) return 'KA';
+  if (/gujarat/i.test(s)) return 'GJ';
+  if (/tamil\s*nadu/i.test(s)) return 'TN';
+  if (/uttar\s*pradesh/i.test(s)) return 'UP';
+  if (/haryana/i.test(s)) return 'HR';
+  if (/punjab/i.test(s)) return 'PB';
+  if (/telangana/i.test(s)) return 'TS';
+  if (/andhra/i.test(s)) return 'AP';
+  if (/kerala/i.test(s)) return 'KL';
+  if (/west\s*bengal/i.test(s)) return 'WB';
+  if (/madhya\s*pradesh/i.test(s)) return 'MP';
+  return s.substring(0, 2).toUpperCase();
+};
+
 const createClusterCustomIcon = function (cluster) {
+  const childCount = cluster.getChildCount();
+  
+  let stateAbbr = '';
+  let regionColor = '#3b82f6';
+  try {
+    const markers = cluster.getAllChildMarkers();
+    if (markers && markers.length > 0) {
+      const vData = markers[0]?.options?.vendor;
+      if (vData) {
+        if (vData.state) stateAbbr = getStateAbbr(vData.state);
+        if (vData.region && REGION_COLORS[vData.region]) regionColor = REGION_COLORS[vData.region];
+      }
+    }
+  } catch (e) {}
+
+  const labelText = stateAbbr ? `${stateAbbr} • ${childCount}` : `${childCount}`;
+  const widthPx = stateAbbr ? 68 : 36;
+
   return L.divIcon({
-    html: `<span style="
+    html: `<div style="
              display: flex;
-             justify-content: center;
              align-items: center;
-             width: 28px;
-             height: 28px;
-             background-color: var(--bg-card, #1a1a1a);
-             color: var(--text-primary, #ffffff);
-             border: 2px solid white;
-             border-radius: 50%;
-             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
-             font-weight: bold;
-             font-size: 12px;
-             animation: pulse 2s infinite;
-           ">${cluster.getChildCount()}</span>`,
-    className: 'custom-marker-cluster',
-    iconSize: L.point(28, 28, true),
+             justify-content: center;
+             gap: 5px;
+             padding: 4px 10px;
+             background: rgba(15, 23, 42, 0.92);
+             color: #ffffff;
+             border: 1.5px solid rgba(255, 255, 255, 0.9);
+             border-radius: 20px;
+             box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), 0 0 10px ${regionColor}aa;
+             font-weight: 700;
+             font-size: 11px;
+             white-space: nowrap;
+             backdrop-filter: blur(8px);
+             letter-spacing: 0.03em;
+             transition: all 0.2s ease;
+           ">
+             <span style="width: 6px; height: 6px; border-radius: 50%; background: ${regionColor}; box-shadow: 0 0 6px ${regionColor};"></span>
+             ${labelText}
+           </div>`,
+    className: 'custom-marker-cluster-pill',
+    iconSize: L.point(widthPx, 28, true),
+    iconAnchor: L.point(Math.floor(widthPx / 2), 14),
   });
 };
 
@@ -170,6 +214,7 @@ const MarkerWithPopup = ({ vendor, focusedVendor, setFocusedVendor, onMount }) =
       position={[vendor.lat, vendor.lng]}
       icon={createVendorIcon(vendor.region)}
       ref={setRef}
+      vendor={vendor}
       eventHandlers={{
         click: () => setFocusedVendor(vendor)
       }}
