@@ -544,7 +544,14 @@ export const ProcureProvider = ({ children }) => {
           const vCode = (vendorObj.vendorCode || '').toLowerCase().trim();
           const vName = (vendorObj.vendorName || '').toLowerCase().trim();
           
-          const dedupKey = (pName && vCode) ? `${pName}::${vCode}` : (pName && vName) ? `${pName}::${vName}` : vendorObj.id;
+          const isGeneric = (str) => !str || str === 'tbd' || str === '—' || str === 'unknown plant' || str === 'unknown vendor' || str === 'none';
+
+          let dedupKey = vendorObj.id;
+          if (!isGeneric(pName) && !isGeneric(vCode)) {
+            dedupKey = `${pName}::${vCode}`;
+          } else if (!isGeneric(pName) && !isGeneric(vName)) {
+            dedupKey = `${pName}::${vName}`;
+          }
 
           if (uniqueVendorsMap.has(dedupKey)) {
             const existing = uniqueVendorsMap.get(dedupKey);
