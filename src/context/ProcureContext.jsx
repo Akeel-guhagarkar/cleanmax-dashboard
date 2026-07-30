@@ -179,10 +179,7 @@ const vendorReducer = (state, action) => {
       const delRec = { ...sv, _deletedAt: new Date().toISOString(), _deletedBy: action.meta?.deletedBy || 'Admin', _deletedByRole: action.meta?.deletedByRole || 'admin', _recordType: 'vendor', _recycleBinId: `del-${sv.id}` };
       
       const remainingVendors = state.vendors.filter(v => v.id !== action.payload);
-      let cascadeProjects = getMatchingProjectsForVendors([sv], state.projects || []);
-      if (remainingVendors.length === 0) {
-        cascadeProjects = [...(state.projects || [])];
-      }
+      const cascadeProjects = getMatchingProjectsForVendors([sv], state.projects || []);
 
       const cascadeDeleted = cascadeProjects.map(p => ({
         ...p,
@@ -214,10 +211,7 @@ const vendorReducer = (state, action) => {
       }));
 
       const remainingVendors = state.vendors.filter(v => !action.payload.includes(v.id));
-      let cascadeProjects = getMatchingProjectsForVendors(toDelete, state.projects || []);
-      if (remainingVendors.length === 0) {
-        cascadeProjects = [...(state.projects || [])];
-      }
+      const cascadeProjects = getMatchingProjectsForVendors(toDelete, state.projects || []);
 
       const cascadeDeleted = cascadeProjects.map(p => ({
         ...p,
@@ -711,7 +705,9 @@ export const ProcureProvider = ({ children }) => {
     }
 
     if (batches.length > 0) {
-      await Promise.all(batches.map(b => b.commit()));
+      for (const b of batches) {
+        await b.commit();
+      }
     }
   }, []);
 
@@ -780,11 +776,7 @@ export const ProcureProvider = ({ children }) => {
         }
         case 'SOFT_DELETE_VENDORS': {
           const recordsToSoftDelete = state.vendors.filter(v => action.payload.includes(v.id));
-          const remainingVendors = state.vendors.filter(v => !action.payload.includes(v.id));
-          let cascadeProjects = getMatchingProjectsForVendors(recordsToSoftDelete, state.projects || []);
-          if (remainingVendors.length === 0) {
-            cascadeProjects = [...(state.projects || [])];
-          }
+          const cascadeProjects = getMatchingProjectsForVendors(recordsToSoftDelete, state.projects || []);
 
           const ops = [];
           recordsToSoftDelete.forEach(v => {
@@ -810,11 +802,7 @@ export const ProcureProvider = ({ children }) => {
             ops.push({ type: 'set', ref: doc(db, 'deletedRecords', recycleBinId), data: { ...singleV, _deletedAt: new Date().toISOString(), _deletedBy: action.meta?.deletedBy || 'Admin', _deletedByRole: action.meta?.deletedByRole || 'admin', _recordType: 'vendor', _recycleBinId: recycleBinId } });
             ops.push({ type: 'delete', ref: doc(db, 'vendors', singleV.id) });
 
-            const remainingVendors = state.vendors.filter(v => v.id !== action.payload);
-            let cascadeProjects = getMatchingProjectsForVendors([singleV], state.projects || []);
-            if (remainingVendors.length === 0) {
-              cascadeProjects = [...(state.projects || [])];
-            }
+            const cascadeProjects = getMatchingProjectsForVendors([singleV], state.projects || []);
 
             cascadeProjects.forEach(p => {
               const pRecycleBinId = `del-${p.id}`;
