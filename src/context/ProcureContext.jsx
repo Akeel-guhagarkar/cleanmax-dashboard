@@ -8,6 +8,17 @@ import { notifyRenewal, notifyDeletion, notifyNewVendor, notifyNewProject, notif
 
 const ProcureContext = createContext();
 
+export const filterValidDeletedRecords = (records) => {
+  if (!Array.isArray(records)) return [];
+  // Filter out the 2,506 legacy bulk bug dump records created before 17:15 UTC today
+  const cutoffTime = new Date('2026-07-30T17:15:00Z').getTime();
+  return records.filter(r => {
+    if (!r) return false;
+    const t = new Date(r._deletedAt || 0).getTime();
+    return t > cutoffTime;
+  });
+};
+
 const getInitialState = () => {
   const savedCurrentUser = sessionStorage.getItem('procure360_current_user');
   const savedDarkMode = localStorage.getItem('procure360_darkmode');
@@ -19,12 +30,14 @@ const getInitialState = () => {
 
   try {
     const version = localStorage.getItem('cleanmax_cache_v');
-    if (version !== '20260730_v3') {
+    if (version !== '20260730_v6') {
       localStorage.removeItem('cleanmax_deleted_records');
-      localStorage.setItem('cleanmax_cache_v', '20260730_v3');
+      localStorage.setItem('cleanmax_deleted_records', JSON.stringify([]));
+      localStorage.setItem('cleanmax_cache_v', '20260730_v6');
+      localDeleted = [];
     } else {
       const dStr = localStorage.getItem('cleanmax_deleted_records');
-      if (dStr) localDeleted = JSON.parse(dStr);
+      if (dStr) localDeleted = filterValidDeletedRecords(JSON.parse(dStr));
     }
     const vStr = localStorage.getItem('cleanmax_vendors');
     if (vStr) localVendors = JSON.parse(vStr);
@@ -45,7 +58,10 @@ const getInitialState = () => {
     notifications: [],
     dismissedAlerts: [],
     uploadHistory: [],
-    deletedRecords: localDeleted || [],
+    deletedRecords: filterValidDeletedRecords(localDeleted || []),
+    systemSettings: { maintenanceMode: false },
+    searchQuery: '',
+    statusFilter: 'All',
     isMaintenanceMode: localStorage.getItem('cleanmax_maintenance') === 'true',
   };
 };
@@ -106,21 +122,25 @@ const vendorReducer = (state, action) => {
   switch (action.type) {
     case 'SYNC_COLLECTION': {
       const { key, data } = action.payload;
-      if (Array.isArray(data)) {
+      let finalData = data;
+      if (key === 'deletedRecords') {
+        finalData = filterValidDeletedRecords(data);
+      }
+      if (Array.isArray(finalData)) {
         try {
-          if (key === 'vendors' && data.length > 0) localStorage.setItem('cleanmax_vendors', JSON.stringify(data));
-          if (key === 'projects' && data.length > 0) localStorage.setItem('cleanmax_projects', JSON.stringify(data));
-          if (key === 'users' && data.length > 0) localStorage.setItem('cleanmax_users', JSON.stringify(data));
-          if (key === 'deletedRecords') localStorage.setItem('cleanmax_deleted_records', JSON.stringify(data));
+          if (key === 'vendors' && finalData.length > 0) localStorage.setItem('cleanmax_vendors', JSON.stringify(finalData));
+          if (key === 'projects' && finalData.length > 0) localStorage.setItem('cleanmax_projects', JSON.stringify(finalData));
+          if (key === 'users' && finalData.length > 0) localStorage.setItem('cleanmax_users', JSON.stringify(finalData));
+          if (key === 'deletedRecords') localStorage.setItem('cleanmax_deleted_records', JSON.stringify(finalData));
         } catch (e) {}
       }
 
-      if (Array.isArray(data) && data.length === 0 && state[key] && state[key].length > 0 && key !== 'deletedRecords') {
+      if (Array.isArray(finalData) && finalData.length === 0 && state[key] && state[key].length > 0 && key !== 'deletedRecords') {
         return state;
       }
       return {
         ...state,
-        [key]: data,
+        [key]: finalData,
       };
     }
     case 'LOGIN':
