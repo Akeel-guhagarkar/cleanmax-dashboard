@@ -86,6 +86,8 @@ const renderCustomizedLabel = (props) => {
 };
 // Custom Y-Axis tick for vendor names on a single unbroken line
 const renderVendorYAxisTick = ({ x, y, payload }) => {
+  const val = String(payload.value || '');
+  const displayVal = val.length > 32 ? val.substring(0, 30) + '…' : val;
   return (
     <g transform={`translate(${x},${y})`}>
       <text
@@ -93,9 +95,9 @@ const renderVendorYAxisTick = ({ x, y, payload }) => {
         y={4}
         textAnchor="end"
         fill="var(--text-secondary)"
-        style={{ fontWeight: 600, fontSize: '13px', whiteSpace: 'nowrap' }}
+        style={{ fontWeight: 600, fontSize: '12.5px', whiteSpace: 'nowrap' }}
       >
-        {payload.value}
+        {displayVal}
       </text>
     </g>
   );
@@ -130,7 +132,7 @@ const Analytics = () => {
   const regionData = useMemo(() => {
     const data = {};
     (state.vendors || []).forEach(v => {
-      const region = normalizeRegion(v.region);
+      const region = normalizeRegion(v.region, v.state, v.city);
       if (!data[region]) data[region] = { name: region, count: 0, capacity: 0 };
       data[region].count += 1;
       data[region].capacity += getCapacityInMW(v.plantCapacity, v.capacityUnit);
@@ -217,9 +219,9 @@ const Analytics = () => {
     return {
       chartData,
       metrics: {
-        avg: Number(overallAvg.toFixed(2)),
-        min: Number(overallMin.toFixed(2)),
-        max: Number(overallMax.toFixed(2)),
+        avg: (overallAvg || 0).toFixed(2),
+        min: (overallMin || 0).toFixed(2),
+        max: (overallMax || 0).toFixed(2),
       }
     };
   }, [state.vendors, state.archivedContracts]);
@@ -274,7 +276,7 @@ const Analytics = () => {
   const capacityStatusData = useMemo(() => {
     const regions = {};
     (state.vendors || []).forEach(v => {
-      const region = normalizeRegion(v.region);
+      const region = normalizeRegion(v.region, v.state, v.city);
       if (!regions[region]) regions[region] = { name: region, 'Active': 0, 'Expiring Soon': 0, 'Expired': 0, total: 0 };
       const cap = getCapacityInMW(v.plantCapacity, v.capacityUnit);
       if (regions[region][v.status] !== undefined) {
@@ -471,14 +473,14 @@ const Analytics = () => {
                     <ComposedChart data={rateCapacityData} margin={{ top: 20, right: 30, left: 10, bottom: 20 }}>
                       <ChartDefs />
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-color)" opacity={0.4} />
-                      <XAxis dataKey="shortName" stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500, fontSize: 12}} minTickGap={20} axisLine={{ stroke: 'var(--border-color)' }} tickLine={false} dy={10} />
+                      <XAxis dataKey="shortName" stroke="var(--text-secondary)" tick={false} axisLine={{ stroke: 'var(--border-color)' }} tickLine={false} />
                       <YAxis yAxisId="left" stroke="#f59e0b" tick={{fill: 'var(--text-secondary)', fontWeight: 500, fontSize: 12}} axisLine={false} tickLine={false} dx={-10} tickFormatter={(val) => `₹${val}`} />
                       <YAxis yAxisId="right" orientation="right" stroke="#3b82f6" tick={{fill: 'var(--text-secondary)', fontWeight: 500, fontSize: 12}} axisLine={false} tickLine={false} dx={10} tickFormatter={(val) => `${val} MWp`} />
                       <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255, 255, 255, 0.04)' }} />
                       <Legend verticalAlign="top" height={36} wrapperStyle={{ fontWeight: 600, fontSize: '0.9rem', paddingBottom: '10px' }} iconType="circle" />
                       <Bar yAxisId="right" dataKey="Total Capacity" name="Total Capacity" fill="url(#colorBlue)" radius={[6, 6, 0, 0]} barSize={36} animationDuration={1500} />
                       <Line yAxisId="left" type="monotone" dataKey="Average Rate" name="Average Rate" stroke="#f59e0b" strokeWidth={3.5} dot={{ r: 4, fill: '#000', stroke: '#f59e0b', strokeWidth: 2 }} activeDot={{ r: 7 }} animationDuration={1500} />
-                      <Brush dataKey="name" height={28} stroke="#3b82f6" fill="rgba(59, 130, 246, 0.08)" travellerWidth={12} tickFormatter={() => ''} />
+                      <Brush dataKey="name" height={24} stroke="#3b82f6" fill="rgba(59, 130, 246, 0.08)" travellerWidth={12} tickFormatter={() => ''} />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
@@ -521,19 +523,21 @@ const Analytics = () => {
                   </span>
                 </div>
                 <div style={{ maxHeight: '520px', overflowY: 'auto', paddingRight: '0.5rem', border: '1px solid var(--border-color)', borderRadius: '12px', background: 'transparent' }}>
-                  <div style={{ height: `${Math.max(450, topVendorsData.length * 44)}px`, width: '100%', minWidth: '850px' }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={topVendorsData} layout="vertical" margin={{ top: 15, right: 60, left: 350, bottom: 15 }}>
-                        <ChartDefs />
-                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border-color)" opacity={0.5} />
-                        <XAxis type="number" allowDecimals={false} stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} axisLine={false} tickLine={false} />
-                        <YAxis dataKey="name" type="category" width={340} stroke="var(--text-secondary)" tick={renderVendorYAxisTick} axisLine={false} tickLine={false} interval={0} />
-                        <Tooltip content={<CustomTooltip />} cursor={{fill: 'var(--border-highlight)'}}/>
-                        <Bar dataKey="capacity" fill="url(#colorOrange)" radius={[0, 8, 8, 0]} barSize={26} animationDuration={1500}>
-                          <LabelList dataKey="capacity" position="right" style={{ fill: 'var(--text-primary)', fontWeight: 600, fontSize: '0.875rem' }} />
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
+                  <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+                    <div style={{ height: `${Math.max(450, topVendorsData.length * 44)}px`, width: '100%', maxWidth: '1100px' }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={topVendorsData} layout="vertical" margin={{ top: 15, right: 80, left: 250, bottom: 15 }}>
+                          <ChartDefs />
+                          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--border-color)" opacity={0.5} />
+                          <XAxis type="number" allowDecimals={false} stroke="var(--text-secondary)" tick={{fill: 'var(--text-secondary)', fontWeight: 500}} axisLine={false} tickLine={false} />
+                          <YAxis dataKey="name" type="category" width={250} stroke="var(--text-secondary)" tick={renderVendorYAxisTick} axisLine={false} tickLine={false} interval={0} />
+                          <Tooltip content={<CustomTooltip />} cursor={{fill: 'var(--border-highlight)'}}/>
+                          <Bar dataKey="capacity" fill="url(#colorOrange)" radius={[0, 8, 8, 0]} barSize={24} animationDuration={1500}>
+                            <LabelList dataKey="capacity" position="right" style={{ fill: 'var(--text-primary)', fontWeight: 600, fontSize: '0.875rem' }} />
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
                   </div>
                 </div>
               </motion.div>

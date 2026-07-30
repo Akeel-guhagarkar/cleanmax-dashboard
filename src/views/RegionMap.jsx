@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useProcure } from '../context/ProcureContext';
+import { ChevronLeft, ChevronRight, Sliders, List, Search, MapPin, Zap, ExternalLink } from 'lucide-react';
 import { MapContainer, TileLayer, GeoJSON, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
@@ -345,6 +346,12 @@ const RegionMap = () => {
   const [statusFilter, setStatusFilter] = useState('All');
   const [focusedVendor, setFocusedVendor] = useState(null);
   const [regionSearch, setRegionSearch] = useState('');
+  const [viewMode, setViewMode] = useState('slider'); // 'slider' | 'list'
+  const [slideIndex, setSlideIndex] = useState(0);
+
+  useEffect(() => {
+    setSlideIndex(0);
+  }, [selectedRegion, regionSearch]);
 
   const filteredVendors = useMemo(() => {
     // City & plant location geocoder map
@@ -438,10 +445,10 @@ const RegionMap = () => {
         </div>
 
         {/* Legend / Details Drawer */}
-        <div className="glass-panel slide-in-drawer delay-2 mobile-responsive-width" style={{ width: '400px', display: 'flex', flexDirection: 'column', gap: '1.5rem', overflowY: 'auto', padding: '2rem' }}>
+        <div className="glass-panel slide-in-drawer delay-2 mobile-responsive-width" style={{ width: '420px', display: 'flex', flexDirection: 'column', gap: '1.25rem', overflow: 'hidden', padding: '1.75rem', height: 'calc(100vh - 180px)', maxHeight: '820px' }}>
           
           {focusedVendor ? (
-            <div className="animate-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
+            <div className="animate-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%', overflowY: 'auto' }}>
               <button onClick={() => setFocusedVendor(null)} className="btn-ghost" style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.75rem', fontSize: '0.9rem' }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
                 Back to {selectedRegion} Projects
@@ -500,139 +507,283 @@ const RegionMap = () => {
               </div>
             </div>
           ) : selectedRegion ? (
-            <div className="animate-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', height: '100%' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="animate-stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%', overflow: 'hidden' }}>
+              
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <div style={{ width: 16, height: 16, borderRadius: '4px', backgroundColor: REGION_COLORS[selectedRegion], boxShadow: `0 0 10px ${REGION_COLORS[selectedRegion]}` }} />
-                  <h3 style={{ fontSize: '1.5rem' }}>{selectedRegion} Region</h3>
+                  <div style={{ width: 14, height: 14, borderRadius: '4px', backgroundColor: REGION_COLORS[selectedRegion], boxShadow: `0 0 10px ${REGION_COLORS[selectedRegion]}` }} />
+                  <h3 style={{ fontSize: '1.35rem', margin: 0, fontWeight: 700 }}>{selectedRegion} Region</h3>
                 </div>
-                <button onClick={() => { setSelectedRegion(null); setFocusedVendor(null); setRegionSearch(''); }} className="btn-ghost" style={{ fontSize: '0.8rem', padding: '0.25rem 0.75rem' }}>Close</button>
+                <button onClick={() => { setSelectedRegion(null); setFocusedVendor(null); setRegionSearch(''); }} className="btn-ghost" style={{ fontSize: '0.8rem', padding: '0.2rem 0.6rem' }}>Close ✕</button>
               </div>
               
-              <div style={{ display: 'flex', gap: '1rem' }}>
-                <div style={{ flex: 1, padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '2rem', fontWeight: 'bold', color: REGION_COLORS[selectedRegion] }}>{regionStats[selectedRegion].vendors.length}</div>
-                  <div className="text-secondary" style={{ fontSize: '0.875rem', fontWeight: 600, marginTop: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Projects</div>
+              {/* Region Stats */}
+              <div style={{ display: 'flex', gap: '0.75rem', flexShrink: 0 }}>
+                <div style={{ flex: 1, padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 800, color: REGION_COLORS[selectedRegion] }}>{regionStats[selectedRegion].vendors.length}</div>
+                  <div className="text-secondary" style={{ fontSize: '0.75rem', fontWeight: 600, marginTop: '0.1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Projects</div>
                 </div>
-                <div style={{ flex: 1, padding: '1.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '2rem', fontWeight: 'bold', color: REGION_COLORS[selectedRegion] }}>{regionStats[selectedRegion].capacity.toFixed(2)}</div>
-                  <div className="text-secondary" style={{ fontSize: '0.875rem', fontWeight: 600, marginTop: '0.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Capacity (MWp)</div>
+                <div style={{ flex: 1, padding: '1rem', background: 'rgba(255,255,255,0.02)', borderRadius: '10px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 800, color: REGION_COLORS[selectedRegion] }}>{regionStats[selectedRegion].capacity.toFixed(2)}</div>
+                  <div className="text-secondary" style={{ fontSize: '0.75rem', fontWeight: 600, marginTop: '0.1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>MWp Capacity</div>
                 </div>
               </div>
 
-              <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.5rem' }}>
-                <div style={{ marginBottom: '1rem', paddingBottom: '0.75rem', borderBottom: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  <h4 style={{ color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>Projects in {selectedRegion}</h4>
-                  <div className="input-wrapper">
-                    <svg className="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ left: '0.75rem' }}>
-                      <circle cx="11" cy="11" r="8"></circle>
-                      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                    </svg>
-                    <input 
-                      type="text" 
-                      placeholder="Search by project, vendor, city, or state..." 
-                      className="premium-input" 
-                      style={{ paddingLeft: '2.25rem', paddingRight: '1rem', paddingTop: '0.5rem', paddingBottom: '0.5rem', fontSize: '0.85rem' }}
-                      value={regionSearch}
-                      onChange={(e) => setRegionSearch(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                  {(() => {
-                    const filteredRegionVendors = regionStats[selectedRegion].vendors.filter(v => {
-                      if (!regionSearch.trim()) return true;
-                      const q = regionSearch.toLowerCase();
-                      return (
-                        (v.plantName && v.plantName.toLowerCase().includes(q)) ||
-                        (v.vendorName && v.vendorName.toLowerCase().includes(q)) ||
-                        (v.city && v.city.toLowerCase().includes(q)) ||
-                        (v.state && v.state.toLowerCase().includes(q))
-                      );
-                    });
-                    if (filteredRegionVendors.length === 0) return (
-                      <div className="text-secondary" style={{ textAlign: 'center', padding: '2rem 0', background: 'rgba(0,0,0,0.02)', borderRadius: '8px' }}>
-                        {regionSearch.trim() ? `No projects matching "${regionSearch}" in this region.` : 'No projects found in this region.'}
-                      </div>
-                    );
-                    return filteredRegionVendors.map((v, i) => {
-                    const isActive = focusedVendor?.id === v.id;
-                    return (
-                    <div 
-                      key={v.id} 
-                      onClick={() => setFocusedVendor(isActive ? null : v)}
-                      className={`animate-stagger delay-${(i % 4) + 1}`} 
-                      style={{ 
-                        padding: '1rem', 
-                        background: isActive ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)', 
-                        border: `2px solid ${isActive ? REGION_COLORS[v.region] : 'var(--border-color)'}`, 
-                        borderRadius: '12px', 
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
-                        alignItems: 'center', 
-                        transition: 'all 0.25s ease',
-                        cursor: 'pointer',
-                        boxShadow: isActive ? `0 0 20px ${REGION_COLORS[v.region]}44, inset 0 0 20px ${REGION_COLORS[v.region]}11` : 'none',
-                        transform: isActive ? 'translateX(6px) scale(1.01)' : 'translateX(0)'
-                      }} 
-                      onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.transform = 'translateX(4px)'; e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.borderColor = REGION_COLORS[v.region]; }}} 
-                      onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.transform = 'translateX(0)'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor = 'var(--border-color)'; }}}
-                    >
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 700, fontSize: '0.95rem', color: isActive ? REGION_COLORS[v.region] : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {v.plantName || v.vendorName}
-                        </div>
-                        <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {v.vendorName}
-                        </div>
-                        <div className="text-secondary" style={{ fontSize: '0.8rem', marginTop: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{v.plantCapacity} {v.capacityUnit}</span>
-                          <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }}></span>
-                          <span>₹{v.rate}/unit</span>
-                          {v.state && v.state !== '—' && (
-                            <>
-                              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }}></span>
-                              <span>{v.state}</span>
-                            </>
-                          )}
-                          {v.city && v.city !== '—' && (
-                            <>
-                              <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'currentColor', flexShrink: 0 }}></span>
-                              <span>{v.city}</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.5rem', marginLeft: '0.75rem', flexShrink: 0 }}>
-                        <span className={`status-pill ${getStatusClass(v.status)}`} style={{ transform: 'scale(0.85)', transformOrigin: 'right center' }}>
-                          {v.status}
-                        </span>
-                        <div
-                          title={isActive ? 'Click to deselect' : 'Zoom to site on map'}
+              {/* View Switcher: Slider vs List */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(0,0,0,0.15)', padding: '0.35rem', borderRadius: '10px', border: '1px solid var(--border-color)', flexShrink: 0 }}>
+                <button 
+                  onClick={() => setViewMode('slider')}
+                  style={{
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                    padding: '0.4rem 0.75rem', borderRadius: '8px', border: 'none',
+                    background: viewMode === 'slider' ? 'var(--accent-color)' : 'transparent',
+                    color: viewMode === 'slider' ? '#ffffff' : 'var(--text-secondary)',
+                    fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.2s'
+                  }}
+                >
+                  <Sliders size={14} /> Carousel Slider
+                </button>
+                <button 
+                  onClick={() => setViewMode('list')}
+                  style={{
+                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                    padding: '0.4rem 0.75rem', borderRadius: '8px', border: 'none',
+                    background: viewMode === 'list' ? 'var(--accent-color)' : 'transparent',
+                    color: viewMode === 'list' ? '#ffffff' : 'var(--text-secondary)',
+                    fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.2s'
+                  }}
+                >
+                  <List size={14} /> Compact List
+                </button>
+              </div>
+
+              {/* Search Bar */}
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <Search size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+                <input 
+                  type="text" 
+                  placeholder="Filter region projects..." 
+                  className="premium-input" 
+                  style={{ paddingLeft: '2.25rem', paddingRight: '0.75rem', paddingTop: '0.45rem', paddingBottom: '0.45rem', fontSize: '0.82rem', borderRadius: '8px' }}
+                  value={regionSearch}
+                  onChange={(e) => setRegionSearch(e.target.value)}
+                />
+              </div>
+
+              {/* Body Content */}
+              {(() => {
+                const filteredRegionVendors = regionStats[selectedRegion].vendors.filter(v => {
+                  if (!regionSearch.trim()) return true;
+                  const q = regionSearch.toLowerCase();
+                  return (
+                    (v.plantName && v.plantName.toLowerCase().includes(q)) ||
+                    (v.vendorName && v.vendorName.toLowerCase().includes(q)) ||
+                    (v.city && v.city.toLowerCase().includes(q)) ||
+                    (v.state && v.state.toLowerCase().includes(q))
+                  );
+                });
+
+                if (filteredRegionVendors.length === 0) {
+                  return (
+                    <div className="text-secondary" style={{ textAlign: 'center', padding: '2rem 0', background: 'rgba(0,0,0,0.02)', borderRadius: '8px', fontSize: '0.85rem' }}>
+                      {regionSearch.trim() ? `No projects matching "${regionSearch}".` : 'No projects found in this region.'}
+                    </div>
+                  );
+                }
+
+                // Ensure slideIndex stays within bounds
+                const safeSlideIndex = Math.min(Math.max(0, slideIndex), filteredRegionVendors.length - 1);
+                const currentProject = filteredRegionVendors[safeSlideIndex];
+
+                if (viewMode === 'slider') {
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', flex: 1, minHeight: 0, justifyContent: 'space-between' }}>
+                      
+                      {/* Slider Navigation Bar */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                        <button
+                          disabled={safeSlideIndex === 0}
+                          onClick={() => {
+                            const newIdx = Math.max(0, safeSlideIndex - 1);
+                            setSlideIndex(newIdx);
+                            setFocusedVendor(filteredRegionVendors[newIdx]);
+                          }}
+                          className="btn-ghost"
                           style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.3rem',
-                            fontSize: '0.7rem',
-                            fontWeight: 600,
-                            color: isActive ? REGION_COLORS[v.region] : 'var(--text-secondary)',
-                            transition: 'color 0.2s',
-                            userSelect: 'none'
+                            padding: '0.4rem 0.75rem', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '0.3rem',
+                            fontSize: '0.78rem', opacity: safeSlideIndex === 0 ? 0.4 : 1, border: '1px solid var(--border-color)'
                           }}
                         >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="12" cy="12" r="3"/>
-                            <path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>
-                          </svg>
-                          {isActive ? 'Focused' : 'Zoom'}
-                        </div>
+                          <ChevronLeft size={16} /> Prev
+                        </button>
+
+                        <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          Project <span style={{ color: REGION_COLORS[selectedRegion] }}>{safeSlideIndex + 1}</span> of {filteredRegionVendors.length}
+                        </span>
+
+                        <button
+                          disabled={safeSlideIndex >= filteredRegionVendors.length - 1}
+                          onClick={() => {
+                            const newIdx = Math.min(filteredRegionVendors.length - 1, safeSlideIndex + 1);
+                            setSlideIndex(newIdx);
+                            setFocusedVendor(filteredRegionVendors[newIdx]);
+                          }}
+                          className="btn-ghost"
+                          style={{
+                            padding: '0.4rem 0.75rem', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '0.3rem',
+                            fontSize: '0.78rem', opacity: safeSlideIndex >= filteredRegionVendors.length - 1 ? 0.4 : 1, border: '1px solid var(--border-color)'
+                          }}
+                        >
+                          Next <ChevronRight size={16} />
+                        </button>
                       </div>
+
+                      {/* Main Featured Slider Project Card */}
+                      {currentProject && (
+                        <div 
+                          className="animate-fade-in-up"
+                          style={{
+                            padding: '1.25rem',
+                            background: 'rgba(255,255,255,0.04)',
+                            border: `2px solid ${REGION_COLORS[selectedRegion]}`,
+                            borderRadius: '14px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '0.85rem',
+                            boxShadow: `0 10px 25px ${REGION_COLORS[selectedRegion]}22`,
+                            flex: 1,
+                            overflowY: 'auto'
+                          }}
+                        >
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                              <h4 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', lineHeight: 1.2 }}>
+                                {currentProject.plantName}
+                              </h4>
+                              <span className={`status-pill ${getStatusClass(currentProject.status)}`} style={{ flexShrink: 0 }}>
+                                {currentProject.status}
+                              </span>
+                            </div>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.35rem', fontWeight: 600 }}>
+                              🏭 {currentProject.vendorName}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', background: 'rgba(0,0,0,0.15)', padding: '0.85rem', borderRadius: '10px', border: '1px solid var(--border-color)' }}>
+                            <div>
+                              <div className="text-secondary" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Capacity</div>
+                              <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '0.15rem' }}>
+                                ⚡ {currentProject.plantCapacity} {currentProject.capacityUnit}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-secondary" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>PPA Rate</div>
+                              <div style={{ fontSize: '1rem', fontWeight: 800, color: '#10b981', marginTop: '0.15rem' }}>
+                                ₹{currentProject.rate}/unit
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <MapPin size={13} color={REGION_COLORS[selectedRegion]} />
+                              <span>{currentProject.city ? `${currentProject.city}, ` : ''}{currentProject.state || selectedRegion}</span>
+                            </div>
+                            {currentProject.poNumber && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                <span>📄 PO: <strong>{currentProject.poNumber}</strong></span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '0.5rem', marginTop: 'auto', paddingTop: '0.5rem' }}>
+                            <button
+                              onClick={() => setFocusedVendor(currentProject)}
+                              className="btn-premium"
+                              style={{ flex: 1, padding: '0.5rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem' }}
+                            >
+                              📍 Focus Map Marker
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Dot Indicators */}
+                      {filteredRegionVendors.length > 1 && (
+                        <div style={{ display: 'flex', justifyContent: 'center', gap: '0.35rem', flexWrap: 'wrap', maxHeight: '45px', overflowY: 'auto', paddingTop: '0.25rem' }}>
+                          {filteredRegionVendors.map((_, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => {
+                                setSlideIndex(idx);
+                                setFocusedVendor(filteredRegionVendors[idx]);
+                              }}
+                              style={{
+                                width: idx === safeSlideIndex ? '20px' : '8px',
+                                height: '8px',
+                                borderRadius: '99px',
+                                border: 'none',
+                                background: idx === safeSlideIndex ? REGION_COLORS[selectedRegion] : 'rgba(255,255,255,0.2)',
+                                cursor: 'pointer',
+                                transition: 'all 0.25s ease',
+                                padding: 0
+                              }}
+                              title={`Go to project ${idx + 1}`}
+                            />
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    );
-                  });
-                  })()}
-                </div>
-              </div>
+                  );
+                }
+
+                // Compact List View Mode
+                return (
+                  <div style={{ flex: 1, overflowY: 'auto', paddingRight: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                    {filteredRegionVendors.map((v, i) => {
+                      const isActive = focusedVendor?.id === v.id;
+                      return (
+                        <div 
+                          key={v.id} 
+                          onClick={() => {
+                            setFocusedVendor(isActive ? null : v);
+                            setSlideIndex(i);
+                          }}
+                          style={{ 
+                            padding: '0.85rem', 
+                            background: isActive ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)', 
+                            border: `2px solid ${isActive ? REGION_COLORS[v.region] : 'var(--border-color)'}`, 
+                            borderRadius: '10px', 
+                            display: 'flex', 
+                            justifyContent: 'space-between', 
+                            alignItems: 'center', 
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease'
+                          }} 
+                        >
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.88rem', color: isActive ? REGION_COLORS[v.region] : 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {v.plantName || v.vendorName}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {v.vendorName}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', marginTop: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.35rem', color: 'var(--text-secondary)' }}>
+                              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{v.plantCapacity} {v.capacityUnit}</span>
+                              <span>•</span>
+                              <span>₹{v.rate}/unit</span>
+                            </div>
+                          </div>
+                          <span className={`status-pill ${getStatusClass(v.status)}`} style={{ transform: 'scale(0.8)', transformOrigin: 'right center', flexShrink: 0 }}>
+                            {v.status}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <div className="animate-stagger" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>

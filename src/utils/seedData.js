@@ -1,18 +1,18 @@
 import { v4 as uuidv4 } from 'uuid';
 import { addDays, subDays, isBefore, isAfter, differenceInDays } from 'date-fns';
-import { STATE_TO_REGION } from './constants.js';
+import { STATE_TO_REGION, parseFlexibleDate, formatDateToISO } from './constants.js';
 
 export const REGIONS = ['North', 'South', 'East', 'West', 'Central'];
 export const STATUSES = ['Active', 'Expiring Soon', 'Expired'];
 
 export const calculateStatus = (endDate) => {
   if (!endDate) return 'Active';
-  const end = new Date(endDate);
+  const end = parseFlexibleDate(endDate);
+  if (!end) return 'Active';
   const now = new Date();
-  if (isNaN(end.getTime())) return 'Active';
 
-  const endMidnight = new Date(end.getFullYear(), end.getMonth(), end.getDate());
-  const nowMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const endMidnight = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+  const nowMidnight = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
   const diffTime = endMidnight - nowMidnight;
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
@@ -52,28 +52,8 @@ export const SEED_USERS = [
 
 const parseDate = (dateStr) => {
   if (!dateStr || dateStr === '—') return new Date().toISOString();
-  try {
-    if (dateStr.includes('-')) {
-      const parts = dateStr.split('-');
-      if (parts[0].length === 4) {
-        const d = new Date(dateStr);
-        return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
-      }
-      const [day, month, year] = parts;
-      const d = new Date(`${year}-${month}-${day}`);
-      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
-    }
-    if (dateStr.includes('/')) {
-      const parts = dateStr.split('/');
-      const [day, month, year] = parts;
-      const d = new Date(`${year}-${month}-${day}`);
-      return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
-    }
-    const d = new Date(dateStr);
-    return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
-  } catch (e) {
-    return new Date().toISOString();
-  }
+  const d = parseFlexibleDate(dateStr);
+  return d ? d.toISOString() : new Date().toISOString();
 };
 
 const genericVendors = [

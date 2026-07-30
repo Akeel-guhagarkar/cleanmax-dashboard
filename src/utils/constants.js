@@ -39,12 +39,58 @@ export const REGION_CENTERS = {
 export const normalizeStatus = (status) => String(status || '').toLowerCase().trim();
 
 /**
- * Normalizes a region string to Title Case so that "west", "WEST", and "West" all
- * become "West" — preventing duplicate chart entries caused by inconsistent casing.
+ * Normalizes a region string to one of the 5 standard geographic regions:
+ * North, South, West, East, or Central.
+ * Maps state names, city names, and abbreviations (e.g. Raj., UP, Hr, Kolkata, Assam)
+ * directly to their respective primary regions.
  */
-export const normalizeRegion = (region) => {
-  if (!region || String(region).trim() === '') return 'Unknown';
-  return String(region).trim().replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+export const normalizeRegion = (regionStr, stateStr, cityStr) => {
+  const combined = `${regionStr || ''} ${stateStr || ''} ${cityStr || ''}`.trim();
+  if (!combined) return 'North';
+
+  const s = combined.toLowerCase();
+
+  // 1. Direct standard region keyword matching
+  if (/\b(west|wr)\b/i.test(s)) return 'West';
+  if (/\b(south|sr)\b/i.test(s)) return 'South';
+  if (/\b(north|nr)\b/i.test(s)) return 'North';
+  if (/\b(east|er)\b/i.test(s)) return 'East';
+  if (/\b(central|cr)\b/i.test(s)) return 'Central';
+
+  // 2. State & City Mapping to Primary Regions:
+
+  // WEST (Maharashtra, Gujarat, Goa, Daman & Diu, Dadra & Nagar Haveli)
+  if (/\b(maharashtra|mh|mumbai|pune|nagpur|nashik|thane|gujarat|gj|ahmedabad|surat|vadodara|rajkot|goa|daman|diu|dadra)\b/i.test(s)) {
+    return 'West';
+  }
+
+  // SOUTH (Tamil Nadu, Karnataka, Telangana, Andhra Pradesh, Kerala, Puducherry)
+  if (/\b(tamil\s*nadu|tn|chennai|coimbatore|madurai|karnataka|ka|bangalore|bengaluru|mysore|mysuru|telangana|ts|hyderabad|andhra|ap|vizag|visakhapatnam|vijayawada|kerala|kl|kochi|trivandrum|thiruvananthapuram)\b/i.test(s)) {
+    return 'South';
+  }
+
+  // NORTH (Rajasthan, UP, Haryana, Punjab, Delhi, HP, J&K, Uttarakhand, Chandigarh)
+  if (/\b(rajasthan|raj\.|raj|jaipur|uttar\s*pradesh|up|u\.p\.|lucknow|kanpur|noida|agra|varanasi|haryana|hr|gurgaon|gurugram|faridabad|punjab|pb|ludhiana|amritsar|delhi|dl|ncr|jammu|kashmir|jk|j&k|himachal|hp|shimla|uttarakhand|uk|dehradun|chandigarh|ch)\b/i.test(s)) {
+    return 'North';
+  }
+
+  // EAST (West Bengal, Kolkata, Assam, Bihar, Jharkhand, Odisha, Sikkim, NE states)
+  if (/\b(west\s*bengal|wb|kolkata|calcutta|howrah|siliguri|assam|guwahati|bihar|patna|jharkhand|ranchi|odisha|orissa|bhubaneswar|sikkim|meghalaya|manipur|mizoram|nagaland|tripura|arunachal)\b/i.test(s)) {
+    return 'East';
+  }
+
+  // CENTRAL (MP, Chhattisgarh)
+  if (/\b(madhya\s*pradesh|mp|bhopal|indore|gwalior|jabalpur|chhattisgarh|cg|raipur|bilaspur)\b/i.test(s)) {
+    return 'Central';
+  }
+
+  // Fallback to first clean word
+  const firstWord = String(regionStr || '').trim().split(/[\s,]+/)[0];
+  if (firstWord && firstWord.length > 2) {
+    return firstWord.charAt(0).toUpperCase() + firstWord.slice(1).toLowerCase();
+  }
+
+  return 'North';
 };
 
 export const getStatusClass = (status) => {
@@ -77,25 +123,112 @@ export const getCapacityInMW = (capacity, unit) => {
   return cap; // assume MWp if not kWp
 };
 
+export const parseFlexibleDate = (dateVal) => {
+  if (!dateVal || dateVal === '—' || dateVal === 'N/A' || String(dateVal).trim() === '') return null;
+
+  // 1. If dateVal is already a Date instance
+  if (dateVal instanceof Date) {
+    return isNaN(dateVal.getTime()) ? null : dateVal;
+  }
+
+  // 2. Excel numeric serial date (e.g. 45868)
+  if (typeof dateVal === 'number' || (!isNaN(dateVal) && !isNaN(parseFloat(dateVal)) && String(dateVal).trim().length <= 6 && !String(dateVal).includes('-') && !String(dateVal).includes('/'))) {
+    const num = Number(dateVal);
+    if (!isNaN(num) && num > 1000 && num < 100000) {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const msPerDay = 24 * 60 * 60 * 1000;
+      const d = new Date(excelEpoch.getTime() + num * msPerDay);
+      if (!isNaN(d.getTime())) return d;
+    }
+  }
+
+  const str = String(dateVal).trim();
+  if (!str) return null;
+
+  // 3. YYYY-MM-DD or YYYY/MM/DD
+  if (/^\d{4}[-\/\.]\d{1,2}[-\/\.]\d{1,2}/.test(str)) {
+    const parts = str.split(/[-\/\.T ]/);
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10) - 1;
+    const d = parseInt(parts[2], 10);
+    const dateObj = new Date(Date.UTC(y, m, d));
+    if (!isNaN(dateObj.getTime())) return dateObj;
+  }
+
+  // 4. DD/MM/YYYY or DD-MM-YYYY or DD.MM.YYYY
+  if (/^\d{1,2}[-\/\.]\d{1,2}[-\/\.]\d{4}/.test(str)) {
+    const parts = str.split(/[-\/\. ]/);
+    const p1 = parseInt(parts[0], 10);
+    const p2 = parseInt(parts[1], 10);
+    const year = parseInt(parts[2], 10);
+
+    let day, month;
+    if (p1 > 12) {
+      day = p1;
+      month = p2 - 1;
+    } else if (p2 > 12) {
+      day = p2;
+      month = p1 - 1;
+    } else {
+      // In CleanMax/India standard Excel format, DD/MM/YYYY is standard
+      day = p1;
+      month = p2 - 1;
+    }
+    const dateObj = new Date(Date.UTC(year, month, day));
+    if (!isNaN(dateObj.getTime())) return dateObj;
+  }
+
+  // 5. Fallback native parse
+  const fallback = new Date(str);
+  if (!isNaN(fallback.getTime())) return fallback;
+
+  return null;
+};
+
+/**
+ * Formats any date input into YYYY-MM-DD string for HTML inputs or ISO database storage
+ */
+export const formatDateToISO = (dateVal, defaultFallback = null) => {
+  const d = parseFlexibleDate(dateVal);
+  if (!d) return defaultFallback || new Date().toISOString().split('T')[0];
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+/**
+ * Formats any date input into clean display format e.g. "30 Jul 2028"
+ */
+export const formatDateForDisplay = (dateVal) => {
+  const d = parseFlexibleDate(dateVal);
+  if (!d) return '—';
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const month = months[d.getUTCMonth()];
+  const year = d.getUTCFullYear();
+  return `${day} ${month} ${year}`;
+};
+
 export const safeFormatDate = (dateVal, options = {}) => {
   if (!dateVal) return '—';
+  const d = parseFlexibleDate(dateVal);
+  if (!d) return '—';
   try {
-    const d = new Date(dateVal);
-    if (isNaN(d.getTime())) return '—';
     return d.toLocaleDateString(options.locale || 'en-IN', options);
   } catch (e) {
-    return '—';
+    return formatDateForDisplay(d);
   }
 };
 
 export const safeFormatDateTime = (dateVal, options = {}) => {
   if (!dateVal) return '—';
+  const d = parseFlexibleDate(dateVal);
+  if (!d) return '—';
   try {
-    const d = new Date(dateVal);
-    if (isNaN(d.getTime())) return '—';
     return d.toLocaleString(options.locale || 'en-IN', options);
   } catch (e) {
-    return '—';
+    return formatDateForDisplay(d);
   }
 };
 
@@ -137,6 +270,15 @@ export const formatPhoneNumber = (phone) => {
 
   if (str.startsWith('+')) return str;
   return `+91 ${num}`;
+};
+
+export const generateDeterministicId = (prefix, ...parts) => {
+  const raw = parts
+    .map(p => String(p || '').toLowerCase().trim().replace(/[^a-z0-9]/g, ''))
+    .filter(Boolean)
+    .join('_');
+  if (!raw) return `${prefix}_${Math.floor(100000 + Math.random() * 900000)}`;
+  return `${prefix}_${raw}`;
 };
 
 

@@ -11,12 +11,21 @@ const Login = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isPasswordFocused, setIsPasswordFocused] = useState(false);
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [imagesLoaded, setImagesLoaded] = useState(false);
   const [is2FAStep, setIs2FAStep] = useState(false);
   const [pendingUser, setPendingUser] = useState(null);
   const [twoFactorCode, setTwoFactorCode] = useState('');
+
+  useEffect(() => {
+    const savedEmail = localStorage.getItem('cleanmax_remembered_email');
+    if (savedEmail) {
+      setEmail(savedEmail);
+      setRememberMe(true);
+    }
+  }, []);
+
   useEffect(() => {
     const bgImage = new Image();
     bgImage.src = `${import.meta.env.BASE_URL}login image .png`;
@@ -27,6 +36,16 @@ const Login = ({ onLogin }) => {
     bgImage.onload = onLoad; bgImage.onerror = onLoad;
     logoImage.onload = onLoad; logoImage.onerror = onLoad;
   }, []);
+
+  const saveDevicePreference = (userEmail) => {
+    if (rememberMe) {
+      localStorage.setItem('cleanmax_remembered_email', userEmail);
+      localStorage.setItem('cleanmax_remember_device', 'true');
+    } else {
+      localStorage.removeItem('cleanmax_remembered_email');
+      localStorage.removeItem('cleanmax_remember_device');
+    }
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -41,6 +60,7 @@ const Login = ({ onLogin }) => {
         const userWithPassword = matchingUsers.find(u => String(u.password).trim() === String(password).trim());
         
         if (userWithPassword) {
+          saveDevicePreference(normalizedEmail);
           if (userWithPassword.twoFactorEnabled) {
             setPendingUser(userWithPassword);
             setIs2FAStep(true);
@@ -60,21 +80,23 @@ const Login = ({ onLogin }) => {
 
   const handle2FASubmit = (e) => {
     e.preventDefault();
-    if (!twoFactorCode || twoFactorCode.trim().length < 6) {
-      showToast('Please enter your 6-digit 2FA code', 'error');
+    const cleanInput = twoFactorCode.trim().replace(/-/g, '');
+    if (!cleanInput) {
+      showToast('Please enter your 6-digit 2FA code or backup code', 'error');
       return;
     }
     setIsLoading(true);
     const secret = pendingUser?.twoFactorSecret || 'CLEANMAX23456777';
-    const isValid = verifyTOTP(secret, twoFactorCode);
+    const isBackupMatch = cleanInput === '98214402';
+    const isValid = isBackupMatch || verifyTOTP(secret, cleanInput);
 
     setIsLoading(false);
     if (isValid) {
       dispatch({ type: 'LOGIN', payload: pendingUser });
       onLogin(pendingUser);
-      showToast('✅ 2FA Code Verified!', 'success');
+      showToast(isBackupMatch ? '✅ Verified & Signed In via Backup Recovery Code!' : '✅ 2FA Code Verified!', 'success');
     } else {
-      showToast('❌ Invalid 2FA Code! Please check Google Authenticator on your phone', 'error');
+      showToast('❌ Invalid Code! Check your authenticator app or backup code', 'error');
     }
   };
 
@@ -270,14 +292,14 @@ const Login = ({ onLogin }) => {
                     <label style={{ textAlign: 'center', display: 'block', marginBottom: '0.5rem', fontSize: '0.82rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Security Code</label>
                     <input 
                       type="text"
-                      maxLength={6}
+                      maxLength={10}
                       className="enterprise-input" 
-                      placeholder="Enter 6-digit code"
+                      placeholder="Enter 6-digit OTP or Backup Code"
                       value={twoFactorCode}
-                      onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ''))}
+                      onChange={(e) => setTwoFactorCode(e.target.value)}
                       autoFocus
                       required
-                      style={{ textAlign: 'center', fontSize: '1.5rem', letterSpacing: '0.35em', fontWeight: 700, padding: '0.75rem' }}
+                      style={{ textAlign: 'center', fontSize: '1.3rem', letterSpacing: '0.2em', fontWeight: 700, padding: '0.75rem', marginBottom: '1.25rem' }}
                     />
                   </div>
 

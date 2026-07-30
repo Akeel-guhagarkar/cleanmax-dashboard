@@ -127,24 +127,41 @@ const App = () => {
   const { state, dispatch } = useProcure();
   const [currentTab, setCurrentTab] = useState('dashboard');
   const [vendorFilter, setVendorFilter] = useState('');
+  const [projectFilter, setProjectFilter] = useState('');
+  const [autoOpenVendor, setAutoOpenVendor] = useState(null);
+  const [autoOpenProject, setAutoOpenProject] = useState(null);
 
   const isMaintenanceOn = state.isMaintenanceMode !== undefined 
     ? Boolean(state.isMaintenanceMode) 
     : (localStorage.getItem('cleanmax_maintenance') === 'true');
   const isAdmin = state.currentUser?.role?.toLowerCase() === 'admin';
 
+  const handleSelectVendorFromSearch = (vendorName) => {
+    setAutoOpenVendor(vendorName);
+    setVendorFilter(vendorName);
+    setCurrentTab('vendors');
+  };
+
+  const handleSelectProjectFromSearch = (project) => {
+    setAutoOpenProject(project);
+    setProjectFilter(project?.projectName || project?.name || '');
+    setCurrentTab('projects');
+  };
+
   const renderContent = () => {
     switch (currentTab) {
       case 'dashboard':
         return <Dashboard setCurrentTab={setCurrentTab} setVendorFilter={setVendorFilter} />;
       case 'vendors':
-        return state.currentUser?.role?.toLowerCase() === 'viewer' ? <Dashboard setCurrentTab={setCurrentTab} setVendorFilter={setVendorFilter} /> : <Vendors initialFilter={vendorFilter} />;
+        return state.currentUser?.role?.toLowerCase() === 'viewer' 
+          ? <Dashboard setCurrentTab={setCurrentTab} setVendorFilter={setVendorFilter} /> 
+          : <Vendors initialFilter={vendorFilter} autoOpenVendor={autoOpenVendor} onClearAutoOpen={() => setAutoOpenVendor(null)} />;
       case 'employees':
         return state.currentUser?.role?.toLowerCase() === 'admin' ? <Employees /> : <Dashboard setCurrentTab={setCurrentTab} setVendorFilter={setVendorFilter} />;
       case 'analytics':
         return <Analytics />;
       case 'projects':
-        return <Projects />;
+        return <Projects initialFilter={projectFilter} autoOpenProject={autoOpenProject} onClearAutoOpen={() => setAutoOpenProject(null)} />;
       case 'renewals':
         return <Renewals />;
       case 'map':
@@ -172,8 +189,11 @@ const App = () => {
           currentTab={currentTab}
           setCurrentTab={(tab) => {
             if (tab !== 'vendors') setVendorFilter('');
+            if (tab !== 'projects') setProjectFilter('');
             setCurrentTab(tab);
           }}
+          onSelectVendor={handleSelectVendorFromSearch}
+          onSelectProject={handleSelectProjectFromSearch}
           onLogout={handleLogout}
           userRole={state.currentUser.role}
         >

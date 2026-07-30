@@ -3,7 +3,7 @@ import { SEED_VENDORS, SEED_USERS, SEED_PROJECTS, SEED_ARCHIVED_CONTRACTS, calcu
 import { v4 as uuidv4 } from 'uuid';
 import { db } from '../firebase';
 import { doc, onSnapshot, setDoc, deleteDoc, writeBatch, collection } from 'firebase/firestore';
-import { normalizeRegion } from '../utils/constants';
+import { normalizeRegion, formatDateToISO, parseFlexibleDate } from '../utils/constants';
 import { notifyRenewal, notifyDeletion, notifyNewVendor, notifyNewProject, notifyNewUser, playNotificationSound } from '../utils/notify';
 
 const ProcureContext = createContext();
@@ -28,6 +28,56 @@ const getInitialState = () => {
 };
 
 const initialState = getInitialState();
+
+const normalizeVendorStr = (str) => {
+  if (!str) return '';
+  return String(str)
+    .toLowerCase()
+    .replace(/pvt\.?\s*ltd\.?|private\s*limited|inc\.?|corp\.?|llp|gepl|solutions|energy/gi, '')
+    .replace(/[^a-z0-9]/g, '');
+};
+
+export const getMatchingProjectsForVendors = (vendorsList, projectsList) => {
+  if (!vendorsList || vendorsList.length === 0 || !projectsList || projectsList.length === 0) return [];
+  
+  const codes = new Set();
+  const names = new Set();
+  const normNames = new Set();
+  const firstWords = new Set();
+
+  vendorsList.forEach(v => {
+    if (!v) return;
+    if (v.vendorCode && String(v.vendorCode).trim() !== '—') {
+      const c = String(v.vendorCode).trim().toLowerCase();
+      codes.add(c);
+      codes.add(String(v.vendorCode).trim());
+    }
+    if (v.vendorName) {
+      const n = String(v.vendorName).trim().toLowerCase();
+      names.add(n);
+      const norm = normalizeVendorStr(v.vendorName);
+      if (norm) normNames.add(norm);
+      const words = n.split(/[\s\-.,]+/).filter(w => w.length > 3);
+      if (words.length > 0) firstWords.add(words[0]);
+    }
+  });
+
+  return projectsList.filter(p => {
+    if (!p) return false;
+    const pCode = p.vendorCode ? String(p.vendorCode).trim().toLowerCase() : '';
+    if (pCode && pCode !== '—' && (codes.has(pCode) || codes.has(String(p.vendorCode).trim()))) return true;
+
+    const pClient = p.client ? String(p.client).trim().toLowerCase() : '';
+    if (pClient) {
+      if (names.has(pClient)) return true;
+      const pNorm = normalizeVendorStr(p.client);
+      if (pNorm && normNames.has(pNorm)) return true;
+      const pWords = pClient.split(/[\s\-.,]+/).filter(w => w.length > 3);
+      if (pWords.length > 0 && firstWords.has(pWords[0])) return true;
+    }
+    return false;
+  });
+};
 
 const vendorReducer = (state, action) => {
   switch (action.type) {
@@ -127,7 +177,29 @@ const vendorReducer = (state, action) => {
       const sv = state.vendors.find(v => v.id === action.payload);
       if (!sv) return state;
       const delRec = { ...sv, _deletedAt: new Date().toISOString(), _deletedBy: action.meta?.deletedBy || 'Admin', _deletedByRole: action.meta?.deletedByRole || 'admin', _recordType: 'vendor', _recycleBinId: `del-${sv.id}` };
-      return { ...state, vendors: state.vendors.filter(v => v.id !== action.payload), deletedRecords: [delRec, ...state.deletedRecords] };
+      
+      const remainingVendors = state.vendors.filter(v => v.id !== action.payload);
+      let cascadeProjects = getMatchingProjectsForVendors([sv], state.projects || []);
+      if (remainingVendors.length === 0) {
+        cascadeProjects = [...(state.projects || [])];
+      }
+
+      const cascadeDeleted = cascadeProjects.map(p => ({
+        ...p,
+        _deletedAt: new Date().toISOString(),
+        _deletedBy: action.meta?.deletedBy || 'Admin',
+        _deletedByRole: action.meta?.deletedByRole || 'admin',
+        _recordType: 'project',
+        _recycleBinId: `del-${p.id}`,
+      }));
+      const cascadeIds = new Set(cascadeProjects.map(p => p.id));
+
+      return {
+        ...state,
+        vendors: remainingVendors,
+        projects: state.projects.filter(p => !cascadeIds.has(p.id)),
+        deletedRecords: [delRec, ...cascadeDeleted, ...state.deletedRecords]
+      };
     }
 
     case 'SOFT_DELETE_VENDORS': {
@@ -140,10 +212,28 @@ const vendorReducer = (state, action) => {
         _recordType: 'vendor',
         _recycleBinId: `del-${v.id}`,
       }));
+
+      const remainingVendors = state.vendors.filter(v => !action.payload.includes(v.id));
+      let cascadeProjects = getMatchingProjectsForVendors(toDelete, state.projects || []);
+      if (remainingVendors.length === 0) {
+        cascadeProjects = [...(state.projects || [])];
+      }
+
+      const cascadeDeleted = cascadeProjects.map(p => ({
+        ...p,
+        _deletedAt: new Date().toISOString(),
+        _deletedBy: action.meta?.deletedBy || 'Admin',
+        _deletedByRole: action.meta?.deletedByRole || 'admin',
+        _recordType: 'project',
+        _recycleBinId: `del-${p.id}`,
+      }));
+      const cascadeIds = new Set(cascadeProjects.map(p => p.id));
+
       return {
         ...state,
-        vendors: state.vendors.filter(v => !action.payload.includes(v.id)),
-        deletedRecords: [...newDeleted, ...state.deletedRecords],
+        vendors: remainingVendors,
+        projects: state.projects.filter(p => !cascadeIds.has(p.id)),
+        deletedRecords: [...newDeleted, ...cascadeDeleted, ...state.deletedRecords],
       };
     }
     case 'SOFT_DELETE_PROJECTS': {
@@ -177,6 +267,40 @@ const vendorReducer = (state, action) => {
         return { ...state, uploadHistory: [...(state.uploadHistory || []), cleanRecord], deletedRecords: remaining };
       }
       return { ...state, deletedRecords: remaining };
+    }
+    case 'RESTORE_DELETED_MANY': {
+      const idsToRestore = new Set(action.payload || []);
+      const recordsToRestore = state.deletedRecords.filter(r => idsToRestore.has(r._recycleBinId) || idsToRestore.has(r.id));
+      const remainingDeleted = state.deletedRecords.filter(r => !idsToRestore.has(r._recycleBinId) && !idsToRestore.has(r.id));
+
+      const restoredVendors = [];
+      const restoredProjects = [];
+      const restoredUsers = [];
+      const restoredUploads = [];
+
+      recordsToRestore.forEach(r => {
+        const { _deletedAt, _deletedBy, _deletedByRole, _recordType, _recycleBinId, ...cleanRecord } = r;
+        if (_recordType === 'vendor') restoredVendors.push(cleanRecord);
+        else if (_recordType === 'project') restoredProjects.push(cleanRecord);
+        else if (_recordType === 'user') restoredUsers.push(cleanRecord);
+        else if (_recordType === 'upload') restoredUploads.push(cleanRecord);
+      });
+
+      return {
+        ...state,
+        vendors: [...state.vendors, ...restoredVendors],
+        projects: [...state.projects, ...restoredProjects],
+        users: [...state.users, ...restoredUsers],
+        uploadHistory: [...(state.uploadHistory || []), ...restoredUploads],
+        deletedRecords: remainingDeleted
+      };
+    }
+    case 'PERMANENT_DELETE_MANY': {
+      const idsToDelete = new Set(action.payload || []);
+      return {
+        ...state,
+        deletedRecords: state.deletedRecords.filter(r => !idsToDelete.has(r._recycleBinId) && !idsToDelete.has(r.id))
+      };
     }
     case 'PERMANENT_DELETE':
       return { ...state, deletedRecords: state.deletedRecords.filter(r => r._recycleBinId !== action.payload) };
@@ -254,12 +378,42 @@ const vendorReducer = (state, action) => {
         notifications: state.notifications.filter(n => n.targetRoles && !n.targetRoles.includes(action.payload.role))
       };
       
-    case 'IMPORT_EXCEL':
+    case 'IMPORT_EXCEL': {
+      const incomingVendors = action.payload.vendors || [];
+      const incomingProjects = action.payload.projects || [];
+
+      // 1. Merge vendors in-place by ID or Plant Name + Vendor Code (Never create duplicates)
+      const vendorMap = new Map();
+      state.vendors.forEach(v => {
+        const key = v.id || `${(v.plantName || '').toLowerCase().trim()}::${(v.vendorCode || '').toLowerCase().trim()}`;
+        vendorMap.set(key, v);
+      });
+
+      incomingVendors.forEach(v => {
+        const key = v.id || `${(v.plantName || '').toLowerCase().trim()}::${(v.vendorCode || '').toLowerCase().trim()}`;
+        const existing = vendorMap.get(key);
+        vendorMap.set(key, existing ? { ...existing, ...v } : v);
+      });
+
+      // 2. Merge projects in-place by ID or Project Name + Client
+      const projectMap = new Map();
+      state.projects.forEach(p => {
+        const key = p.id || `${(p.projectName || '').toLowerCase().trim()}::${(p.client || '').toLowerCase().trim()}`;
+        projectMap.set(key, p);
+      });
+
+      incomingProjects.forEach(p => {
+        const key = p.id || `${(p.projectName || '').toLowerCase().trim()}::${(p.client || '').toLowerCase().trim()}`;
+        const existing = projectMap.get(key);
+        projectMap.set(key, existing ? { ...existing, ...p } : p);
+      });
+
       return {
         ...state,
-        vendors: [...state.vendors, ...action.payload.vendors],
-        projects: [...state.projects, ...action.payload.projects],
+        vendors: Array.from(vendorMap.values()),
+        projects: Array.from(projectMap.values()),
       };
+    }
       
     case 'ADD_UPLOAD_HISTORY':
       return { ...state, uploadHistory: [{ id: action.payload.id, timestamp: new Date().toISOString(), ...action.payload }, ...state.uploadHistory] };
@@ -320,26 +474,84 @@ export const ProcureProvider = ({ children }) => {
 
   // Initialize data from Firestore Collections
   useEffect(() => {
-    let unsubVendors, unsubProjects, unsubUsers, unsubNotifications, unsubDismissed, unsubHistory, unsubDeleted, unsubSettings;
+    let unsubVendors, unsubProjects, unsubUsers, unsubNotifications, unsubDismissed, unsubHistory, unsubDeleted, unsubSettings, unsubArchived;
     
     try {
       unsubVendors = onSnapshot(collection(db, 'vendors'), (snapshot) => {
-        const vendors = snapshot.docs.map(doc => {
-          const data = doc.data() || {};
-          return {
+        const uniqueVendorsMap = new Map();
+        const duplicateIdsToDelete = [];
+
+        snapshot.docs.forEach(docSnap => {
+          const data = docSnap.data() || {};
+          let start = data.contractStart;
+          let end = data.contractEnd;
+          
+          if (start && end && formatDateToISO(start) === formatDateToISO(end)) {
+            const sDate = parseFlexibleDate(start);
+            if (sDate) {
+              const healDate = new Date(sDate);
+              healDate.setUTCFullYear(healDate.getUTCFullYear() + 2);
+              end = formatDateToISO(healDate);
+            }
+          }
+
+          const vendorObj = {
             ...data,
-            id: data.id || doc.id,
-            vendorCode: data.vendorCode || `VND-${doc.id.substring(0, 6)}`,
+            id: data.id || docSnap.id,
+            vendorCode: data.vendorCode || `VND-${docSnap.id.substring(0, 6)}`,
             vendorName: data.vendorName || 'Unknown Vendor',
             plantName: data.plantName || 'Unknown Plant',
             plantCapacity: Number(data.plantCapacity) || 0,
             capacityUnit: data.capacityUnit || 'kWp',
             rate: Number(data.rate) || 0,
-            region: normalizeRegion(data.region),
-            status: calculateStatus(data.contractEnd)
+            contractStart: start,
+            contractEnd: end,
+            region: normalizeRegion(data.region, data.state, data.city),
+            status: calculateStatus(end)
           };
+
+          const pName = (vendorObj.plantName || '').toLowerCase().trim();
+          const vCode = (vendorObj.vendorCode || '').toLowerCase().trim();
+          const vName = (vendorObj.vendorName || '').toLowerCase().trim();
+          
+          const dedupKey = (pName && vCode) ? `${pName}::${vCode}` : (pName && vName) ? `${pName}::${vName}` : vendorObj.id;
+
+          if (uniqueVendorsMap.has(dedupKey)) {
+            const existing = uniqueVendorsMap.get(dedupKey);
+            const existingTime = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+            const currTime = new Date(vendorObj.updatedAt || vendorObj.createdAt || 0).getTime();
+            
+            if (currTime > existingTime) {
+              duplicateIdsToDelete.push(existing.id);
+              uniqueVendorsMap.set(dedupKey, vendorObj);
+            } else {
+              duplicateIdsToDelete.push(vendorObj.id);
+            }
+          } else {
+            uniqueVendorsMap.set(dedupKey, vendorObj);
+          }
         });
-        dispatch({ type: 'SYNC_COLLECTION', payload: { key: 'vendors', data: vendors } });
+
+        if (duplicateIdsToDelete.length > 0) {
+          (async () => {
+            try {
+              let b = writeBatch(db);
+              let count = 0;
+              for (const dId of duplicateIdsToDelete) {
+                b.delete(doc(db, 'vendors', dId));
+                count++;
+                if (count >= 450) {
+                  await b.commit();
+                  b = writeBatch(db);
+                  count = 0;
+                }
+              }
+              if (count > 0) await b.commit();
+            } catch (e) {}
+          })();
+        }
+
+        dispatch({ type: 'SYNC_COLLECTION', payload: { key: 'vendors', data: Array.from(uniqueVendorsMap.values()) } });
       });
       unsubProjects = onSnapshot(collection(db, 'projects'), (snapshot) => {
         const projects = snapshot.docs.map(doc => {
@@ -383,7 +595,11 @@ export const ProcureProvider = ({ children }) => {
         }
       });
       unsubHistory = onSnapshot(collection(db, 'uploadHistory'), (snapshot) => {
-        dispatch({ type: 'SYNC_COLLECTION', payload: { key: 'uploadHistory', data: snapshot.docs.map(doc => doc.data()).sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)) } });
+        const historyItems = snapshot.docs.map(docSnap => ({
+          id: docSnap.id,
+          ...docSnap.data()
+        })).sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+        dispatch({ type: 'SYNC_COLLECTION', payload: { key: 'uploadHistory', data: historyItems } });
       });
       let isFirstNotifSync = true;
       unsubNotifications = onSnapshot(collection(db, 'notifications'), (snapshot) => {
@@ -394,7 +610,13 @@ export const ProcureProvider = ({ children }) => {
         if (!isFirstNotifSync) {
           const addedChanges = snapshot.docChanges().filter(c => c.type === 'added');
           if (addedChanges.length > 0) {
-            playNotificationSound();
+            try {
+              const saved = sessionStorage.getItem('procure360_current_user');
+              const currentUser = saved ? JSON.parse(saved) : null;
+              if (currentUser?.notificationPrefs?.pushNotifications === true) {
+                playNotificationSound();
+              }
+            } catch (e) {}
           }
         }
         isFirstNotifSync = false;
@@ -411,6 +633,12 @@ export const ProcureProvider = ({ children }) => {
           .map(doc => ({ ...doc.data(), _recycleBinId: doc.id }))
           .sort((a, b) => new Date(b._deletedAt || 0) - new Date(a._deletedAt || 0));
         dispatch({ type: 'SYNC_COLLECTION', payload: { key: 'deletedRecords', data: deleted } });
+      });
+      unsubArchived = onSnapshot(collection(db, 'archivedContracts'), (snapshot) => {
+        const archived = snapshot.docs
+          .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
+          .sort((a, b) => new Date(b.renewedAt || b.timestamp || 0) - new Date(a.renewedAt || a.timestamp || 0));
+        dispatch({ type: 'SYNC_COLLECTION', payload: { key: 'archivedContracts', data: archived.length > 0 ? archived : SEED_ARCHIVED_CONTRACTS } });
       });
       unsubSettings = onSnapshot(collection(db, 'systemSettings'), (snapshot) => {
         const configDoc = snapshot.docs.find(d => d.id === 'global_config');
@@ -435,6 +663,7 @@ export const ProcureProvider = ({ children }) => {
       if (unsubDismissed) unsubDismissed();
       if (unsubHistory) unsubHistory();
       if (unsubDeleted) unsubDeleted();
+      if (unsubArchived) unsubArchived();
       if (unsubSettings) unsubSettings();
     };
   }, []);
@@ -456,64 +685,163 @@ export const ProcureProvider = ({ children }) => {
     }
   }, [state.isDarkMode]);
 
+  // Parallel Firestore Batch Commit Engine for 2000+ Record Datasets
+  const commitOpsInParallel = React.useCallback(async (ops) => {
+    if (!ops || ops.length === 0) return;
+    const BATCH_LIMIT = 450;
+    const batches = [];
+    let currentBatch = writeBatch(db);
+    let count = 0;
+
+    for (const op of ops) {
+      if (op.type === 'set') {
+        currentBatch.set(op.ref, op.data, op.options || { merge: true });
+      } else if (op.type === 'delete') {
+        currentBatch.delete(op.ref);
+      }
+      count++;
+      if (count >= BATCH_LIMIT) {
+        batches.push(currentBatch);
+        currentBatch = writeBatch(db);
+        count = 0;
+      }
+    }
+    if (count > 0) {
+      batches.push(currentBatch);
+    }
+
+    if (batches.length > 0) {
+      await Promise.all(batches.map(b => b.commit()));
+    }
+  }, []);
+
   // Firebase wrapper for dispatch
-  const asyncDispatch = async (action) => {
+  const asyncDispatch = React.useCallback(async (action) => {
     // Optimistically update UI
     dispatch(action);
 
     try {
       switch (action.type) {
         case 'ADD_VENDOR':
-        case 'UPDATE_VENDOR':
           await setDoc(doc(db, 'vendors', action.payload.id), action.payload, { merge: true });
+          break;
+        case 'UPDATE_VENDOR': {
+          const existingVendor = (state.vendors || []).find(v => v.id === action.payload.id);
+          const dateStatus = calculateStatus(action.payload.contractEnd);
+          const newStatus = action.payload.manualStatus && action.payload.manualStatus !== '' ? action.payload.manualStatus : dateStatus;
+
+          if (existingVendor) {
+            const prevStatus = String(existingVendor.status || '').toLowerCase();
+            if ((prevStatus.includes('expir') || prevStatus.includes('expired')) && newStatus === 'Active') {
+              const autoSnapshot = {
+                id: `renew-${uuidv4()}`,
+                vendorId: existingVendor.id,
+                vendorCode: existingVendor.vendorCode,
+                vendorName: existingVendor.vendorName,
+                oldVendorName: existingVendor.vendorName,
+                newVendorName: action.payload.vendorName !== existingVendor.vendorName ? action.payload.vendorName : null,
+                plantName: existingVendor.plantName,
+                region: existingVendor.region,
+                state: existingVendor.state,
+                city: existingVendor.city,
+                oldPoNumber: existingVendor.poNumber,
+                newPoNumber: action.payload.poNumber || existingVendor.poNumber,
+                oldRate: Number(existingVendor.rate) || 0,
+                newRate: Number(action.payload.rate) || Number(existingVendor.rate) || 0,
+                oldContractStart: existingVendor.contractStart,
+                oldContractEnd: existingVendor.contractEnd,
+                newContractStart: action.payload.contractStart || existingVendor.contractStart,
+                newContractEnd: action.payload.contractEnd || existingVendor.contractEnd,
+                plantCapacity: existingVendor.plantCapacity,
+                capacityUnit: existingVendor.capacityUnit,
+                renewalStatus: 'Renewed',
+                renewedAt: new Date().toISOString(),
+                renewedBy: state.currentUser?.name || 'System User',
+                renewedByRole: state.currentUser?.role || 'Admin',
+              };
+              await setDoc(doc(db, 'archivedContracts', autoSnapshot.id), autoSnapshot, { merge: true });
+            }
+          }
+
+          const { manualStatus, ...cleanPayload } = action.payload;
+          await setDoc(doc(db, 'vendors', cleanPayload.id), { ...cleanPayload, status: newStatus, updatedAt: new Date().toISOString() }, { merge: true });
+          break;
+        }
+        case 'ADD_ARCHIVED_CONTRACT':
+          await setDoc(doc(db, 'archivedContracts', action.payload.id), action.payload, { merge: true });
           break;
         case 'DELETE_VENDOR':
           await deleteDoc(doc(db, 'vendors', action.payload));
           break;
         case 'DELETE_VENDORS': {
-          const batchV = writeBatch(db);
-          action.payload.forEach(id => batchV.delete(doc(db, 'vendors', id)));
-          await batchV.commit();
+          const ops = action.payload.map(id => ({ type: 'delete', ref: doc(db, 'vendors', id) }));
+          await commitOpsInParallel(ops);
           break;
         }
         case 'SOFT_DELETE_VENDORS': {
-          const batchSV = writeBatch(db);
           const recordsToSoftDelete = state.vendors.filter(v => action.payload.includes(v.id));
+          const remainingVendors = state.vendors.filter(v => !action.payload.includes(v.id));
+          let cascadeProjects = getMatchingProjectsForVendors(recordsToSoftDelete, state.projects || []);
+          if (remainingVendors.length === 0) {
+            cascadeProjects = [...(state.projects || [])];
+          }
+
+          const ops = [];
           recordsToSoftDelete.forEach(v => {
             const recycleBinId = `del-${v.id}`;
-            batchSV.set(doc(db, 'deletedRecords', recycleBinId), { ...v, _deletedAt: new Date().toISOString(), _deletedBy: action.meta?.deletedBy || 'Admin', _deletedByRole: action.meta?.deletedByRole || 'admin', _recordType: 'vendor', _recycleBinId: recycleBinId });
-            batchSV.delete(doc(db, 'vendors', v.id));
+            ops.push({ type: 'set', ref: doc(db, 'deletedRecords', recycleBinId), data: { ...v, _deletedAt: new Date().toISOString(), _deletedBy: action.meta?.deletedBy || 'Admin', _deletedByRole: action.meta?.deletedByRole || 'admin', _recordType: 'vendor', _recycleBinId: recycleBinId } });
+            ops.push({ type: 'delete', ref: doc(db, 'vendors', v.id) });
           });
-          await batchSV.commit();
+
+          cascadeProjects.forEach(p => {
+            const recycleBinId = `del-${p.id}`;
+            ops.push({ type: 'set', ref: doc(db, 'deletedRecords', recycleBinId), data: { ...p, _deletedAt: new Date().toISOString(), _deletedBy: action.meta?.deletedBy || 'Admin', _deletedByRole: action.meta?.deletedByRole || 'admin', _recordType: 'project', _recycleBinId: recycleBinId } });
+            ops.push({ type: 'delete', ref: doc(db, 'projects', p.id) });
+          });
+
+          await commitOpsInParallel(ops);
           break;
         }
         case 'SOFT_DELETE_VENDOR': {
           const singleV = state.vendors.find(v => v.id === action.payload);
           if (singleV) {
+            const ops = [];
             const recycleBinId = `del-${singleV.id}`;
-            const batchSingle = writeBatch(db);
-            batchSingle.set(doc(db, 'deletedRecords', recycleBinId), { ...singleV, _deletedAt: new Date().toISOString(), _deletedBy: action.meta?.deletedBy || 'Admin', _deletedByRole: action.meta?.deletedByRole || 'admin', _recordType: 'vendor', _recycleBinId: recycleBinId });
-            batchSingle.delete(doc(db, 'vendors', singleV.id));
-            await batchSingle.commit();
+            ops.push({ type: 'set', ref: doc(db, 'deletedRecords', recycleBinId), data: { ...singleV, _deletedAt: new Date().toISOString(), _deletedBy: action.meta?.deletedBy || 'Admin', _deletedByRole: action.meta?.deletedByRole || 'admin', _recordType: 'vendor', _recycleBinId: recycleBinId } });
+            ops.push({ type: 'delete', ref: doc(db, 'vendors', singleV.id) });
+
+            const remainingVendors = state.vendors.filter(v => v.id !== action.payload);
+            let cascadeProjects = getMatchingProjectsForVendors([singleV], state.projects || []);
+            if (remainingVendors.length === 0) {
+              cascadeProjects = [...(state.projects || [])];
+            }
+
+            cascadeProjects.forEach(p => {
+              const pRecycleBinId = `del-${p.id}`;
+              ops.push({ type: 'set', ref: doc(db, 'deletedRecords', pRecycleBinId), data: { ...p, _deletedAt: new Date().toISOString(), _deletedBy: action.meta?.deletedBy || 'Admin', _deletedByRole: action.meta?.deletedByRole || 'admin', _recordType: 'project', _recycleBinId: pRecycleBinId } });
+              ops.push({ type: 'delete', ref: doc(db, 'projects', p.id) });
+            });
+
+            await commitOpsInParallel(ops);
           }
           break;
         }
         case 'SOFT_DELETE_PROJECTS': {
-          const batchSP = writeBatch(db);
           const projectsToSoftDelete = state.projects.filter(p => action.payload.includes(p.id));
+          const ops = [];
           projectsToSoftDelete.forEach(p => {
             const recycleBinId = `del-${p.id}`;
-            batchSP.set(doc(db, 'deletedRecords', recycleBinId), {
+            ops.push({ type: 'set', ref: doc(db, 'deletedRecords', recycleBinId), data: {
               ...p,
               _deletedAt: new Date().toISOString(),
               _deletedBy: action.meta?.deletedBy || 'Admin',
               _deletedByRole: action.meta?.deletedByRole || 'admin',
               _recordType: 'project',
               _recycleBinId: recycleBinId,
-            });
-            batchSP.delete(doc(db, 'projects', p.id));
+            }});
+            ops.push({ type: 'delete', ref: doc(db, 'projects', p.id) });
           });
-          await batchSP.commit();
+          await commitOpsInParallel(ops);
           break;
         }
         case 'RESTORE_DELETED': {
@@ -531,13 +859,49 @@ export const ProcureProvider = ({ children }) => {
           }
           break;
         }
-        case 'PERMANENT_DELETE':
-          await deleteDoc(doc(db, 'deletedRecords', action.payload));
+        case 'RESTORE_DELETED_MANY': {
+          const ids = action.payload || [];
+          const recordsToRestore = (state.deletedRecords || []).filter(r => ids.includes(r._recycleBinId) || ids.includes(r.id));
+          const ops = [];
+
+          recordsToRestore.forEach(r => {
+            const rId = r._recycleBinId || r.id;
+            const { _deletedAt, _deletedBy, _deletedByRole, _recordType, _recycleBinId, ...cleanRecord } = r;
+            let coll = 'vendors';
+            if (_recordType === 'project') coll = 'projects';
+            else if (_recordType === 'user') coll = 'users';
+            else if (_recordType === 'upload') coll = 'uploadHistory';
+
+            if (_recordType !== 'upload') {
+              ops.push({ type: 'set', ref: doc(db, coll, cleanRecord.id), data: cleanRecord });
+            }
+            ops.push({ type: 'delete', ref: doc(db, 'deletedRecords', rId) });
+          });
+
+          await commitOpsInParallel(ops);
           break;
+        }
+        case 'PERMANENT_DELETE':
+          if (action.payload) {
+            await deleteDoc(doc(db, 'deletedRecords', action.payload));
+          }
+          break;
+        case 'PERMANENT_DELETE_MANY': {
+          const ids = action.payload || [];
+          const ops = ids.map(id => ({ type: 'delete', ref: doc(db, 'deletedRecords', id) }));
+          await commitOpsInParallel(ops);
+          break;
+        }
         case 'CLEAR_RECYCLE_BIN': {
-          const batchCR = writeBatch(db);
-          state.deletedRecords.forEach(r => batchCR.delete(doc(db, 'deletedRecords', r._recycleBinId)));
-          await batchCR.commit();
+          const recordsToDelete = [...(state.deletedRecords || [])];
+          const ops = [];
+          for (const r of recordsToDelete) {
+            const rId = r._recycleBinId || r.id;
+            if (rId) {
+              ops.push({ type: 'delete', ref: doc(db, 'deletedRecords', rId) });
+            }
+          }
+          await commitOpsInParallel(ops);
           break;
         }
         case 'ADD_PROJECT':
@@ -545,9 +909,8 @@ export const ProcureProvider = ({ children }) => {
           await setDoc(doc(db, 'projects', action.payload.id), action.payload, { merge: true });
           break;
         case 'DELETE_PROJECTS': {
-          const batchP = writeBatch(db);
-          action.payload.forEach(id => batchP.delete(doc(db, 'projects', id)));
-          await batchP.commit();
+          const ops = action.payload.map(id => ({ type: 'delete', ref: doc(db, 'projects', id) }));
+          await commitOpsInParallel(ops);
           break;
         }
         case 'ADD_USER':
@@ -561,10 +924,11 @@ export const ProcureProvider = ({ children }) => {
           const suUser = state.users.find(u => u.id === action.payload);
           if (suUser) {
             const recycleBinId = `del-${suUser.id}`;
-            const batchU = writeBatch(db);
-            batchU.set(doc(db, 'deletedRecords', recycleBinId), { ...suUser, _deletedAt: new Date().toISOString(), _deletedBy: action.meta?.deletedBy || 'Admin', _deletedByRole: action.meta?.deletedByRole || 'admin', _recordType: 'user', _recycleBinId: recycleBinId });
-            batchU.delete(doc(db, 'users', suUser.id));
-            await batchU.commit();
+            const ops = [
+              { type: 'set', ref: doc(db, 'deletedRecords', recycleBinId), data: { ...suUser, _deletedAt: new Date().toISOString(), _deletedBy: action.meta?.deletedBy || 'Admin', _deletedByRole: action.meta?.deletedByRole || 'admin', _recordType: 'user', _recycleBinId: recycleBinId } },
+              { type: 'delete', ref: doc(db, 'users', suUser.id) }
+            ];
+            await commitOpsInParallel(ops);
           }
           break;
         }
@@ -587,18 +951,14 @@ export const ProcureProvider = ({ children }) => {
           break;
         }
         case 'MARK_ALL_NOTIFICATIONS_READ': {
-          const batchN = writeBatch(db);
-          let countN = 0;
+          const ops = [];
           state.notifications.forEach(n => {
             if (!n.targetRoles || n.targetRoles.includes(action.payload.role)) {
               const newReadBy = [...new Set([...(n.readBy || []), action.payload.userId, action.payload.role].filter(Boolean))];
-              batchN.set(doc(db, 'notifications', n.id), { readBy: newReadBy }, { merge: true });
-              countN++;
+              ops.push({ type: 'set', ref: doc(db, 'notifications', n.id), data: { readBy: newReadBy } });
             }
           });
-          if (countN > 0) {
-            await batchN.commit();
-          }
+          await commitOpsInParallel(ops);
           break;
         }
         case 'DELETE_NOTIFICATION': {
@@ -612,48 +972,27 @@ export const ProcureProvider = ({ children }) => {
           break;
         }
         case 'CLEAR_ALL_NOTIFICATIONS': {
-          const batchC = writeBatch(db);
-          let countC = 0;
+          const ops = [];
           state.notifications.forEach(n => {
             if (!n.targetRoles || n.targetRoles.includes(action.payload.role)) {
               if (n.dedupeKey) {
-                batchC.set(doc(db, 'dismissedAlerts', n.dedupeKey), { timestamp: new Date().toISOString() }, { merge: true });
+                ops.push({ type: 'set', ref: doc(db, 'dismissedAlerts', n.dedupeKey), data: { timestamp: new Date().toISOString() } });
               }
-              batchC.delete(doc(db, 'notifications', n.id));
-              countC++;
+              ops.push({ type: 'delete', ref: doc(db, 'notifications', n.id) });
             }
           });
-          if (countC > 0) {
-            await batchC.commit();
-          }
+          await commitOpsInParallel(ops);
           break;
         }
         case 'IMPORT_EXCEL': {
-          // Batch process max 500 operations per batch
-          let batch = writeBatch(db);
-          let count = 0;
-          
+          const ops = [];
           for (const v of action.payload.vendors) {
-            batch.set(doc(db, 'vendors', v.id), v, { merge: true });
-            count++;
-            if (count === 490) {
-              await batch.commit();
-              batch = writeBatch(db);
-              count = 0;
-            }
+            ops.push({ type: 'set', ref: doc(db, 'vendors', v.id), data: v });
           }
           for (const p of action.payload.projects) {
-            batch.set(doc(db, 'projects', p.id), p, { merge: true });
-            count++;
-            if (count === 490) {
-              await batch.commit();
-              batch = writeBatch(db);
-              count = 0;
-            }
+            ops.push({ type: 'set', ref: doc(db, 'projects', p.id), data: p });
           }
-          if (count > 0) {
-            await batch.commit();
-          }
+          await commitOpsInParallel(ops);
           break;
         }
         case 'ADD_UPLOAD_HISTORY':
@@ -662,39 +1001,55 @@ export const ProcureProvider = ({ children }) => {
         case 'DELETE_UPLOAD_HISTORY': {
           const historyRecord = state.uploadHistory.find(h => h.id === action.payload);
           if (historyRecord) {
-            
-            // Optimistic local deletion
-            if (historyRecord.vendorIds?.length) dispatch({ type: 'DELETE_VENDORS', payload: historyRecord.vendorIds });
-            if (historyRecord.projectIds?.length) dispatch({ type: 'DELETE_PROJECTS', payload: historyRecord.projectIds });
-
-            let delBatch = writeBatch(db);
-            let delCount = 0;
-            
-            const processBatch = async () => {
-              if (delCount > 0) {
-                await delBatch.commit();
-                delBatch = writeBatch(db);
-                delCount = 0;
-              }
-            };
-            
+            const ops = [];
             if (historyRecord.vendorIds) {
               for (const vId of historyRecord.vendorIds) {
-                delBatch.delete(doc(db, 'vendors', vId));
-                delCount++;
-                if (delCount === 490) await processBatch();
+                ops.push({ type: 'delete', ref: doc(db, 'vendors', vId) });
               }
             }
             if (historyRecord.projectIds) {
               for (const pId of historyRecord.projectIds) {
-                delBatch.delete(doc(db, 'projects', pId));
-                delCount++;
-                if (delCount === 490) await processBatch();
+                ops.push({ type: 'delete', ref: doc(db, 'projects', pId) });
               }
             }
-            delBatch.delete(doc(db, 'uploadHistory', action.payload));
-            delCount++;
-            await processBatch();
+            ops.push({ type: 'delete', ref: doc(db, 'uploadHistory', action.payload) });
+            await commitOpsInParallel(ops);
+          }
+          break;
+        }
+        case 'SOFT_DELETE_UPLOAD': {
+          const historyId = action.payload;
+          const historyRecord = (state.uploadHistory || []).find(h => h.id === historyId);
+          if (historyRecord) {
+            const vendorIds = Array.from(new Set(historyRecord.vendorIds || []));
+            const projectIds = Array.from(new Set(historyRecord.projectIds || []));
+            const deletedBy = action.meta?.deletedBy || state.currentUser?.name || 'Admin';
+            const deletedByRole = action.meta?.deletedByRole || state.currentUser?.role || 'admin';
+            const now = new Date().toISOString();
+
+            const ops = [];
+
+            const delUpload = { ...historyRecord, _deletedAt: now, _deletedBy: deletedBy, _deletedByRole: deletedByRole, _recordType: 'upload', _recycleBinId: `del-${historyId}` };
+            ops.push({ type: 'set', ref: doc(db, 'deletedRecords', `del-${historyId}`), data: delUpload });
+            ops.push({ type: 'delete', ref: doc(db, 'uploadHistory', historyId) });
+
+            for (const vId of vendorIds) {
+              const vObj = (state.vendors || []).find(v => v.id === vId);
+              if (vObj) {
+                ops.push({ type: 'set', ref: doc(db, 'deletedRecords', `del-v-${vId}`), data: { ...vObj, _deletedAt: now, _deletedBy: deletedBy, _deletedByRole: deletedByRole, _recordType: 'vendor', _recycleBinId: `del-v-${vId}` } });
+              }
+              ops.push({ type: 'delete', ref: doc(db, 'vendors', vId) });
+            }
+
+            for (const pId of projectIds) {
+              const pObj = (state.projects || []).find(p => p.id === pId);
+              if (pObj) {
+                ops.push({ type: 'set', ref: doc(db, 'deletedRecords', `del-p-${pId}`), data: { ...pObj, _deletedAt: now, _deletedBy: deletedBy, _deletedByRole: deletedByRole, _recordType: 'project', _recycleBinId: `del-p-${pId}` } });
+              }
+              ops.push({ type: 'delete', ref: doc(db, 'projects', pId) });
+            }
+
+            await commitOpsInParallel(ops);
           }
           break;
         }
@@ -702,14 +1057,20 @@ export const ProcureProvider = ({ children }) => {
     } catch (e) {
       console.error("Firebase Sync Error (asyncDispatch):", e);
     }
-  };
+  }, [state.vendors, state.projects, state.users, state.notifications, state.deletedRecords, state.uploadHistory]);
 
-  const showToast = (message, type = 'success') => {
+  const showToast = React.useCallback((message, type = 'success') => {
     asyncDispatch({ type: 'ADD_TOAST', payload: { message, type } });
-  };
+  }, [asyncDispatch]);
+
+  const contextValue = React.useMemo(() => ({
+    state,
+    dispatch: asyncDispatch,
+    showToast
+  }), [state, asyncDispatch, showToast]);
 
   return (
-    <ProcureContext.Provider value={{ state, dispatch: asyncDispatch, showToast }}>
+    <ProcureContext.Provider value={contextValue}>
       {children}
     </ProcureContext.Provider>
   );

@@ -607,24 +607,20 @@ const RecycleBin = () => {
   };
 
   const handleRestoreSelected = () => {
-    const count = selectedIds.size;
-    if (count === 0) return;
-    selectedIds.forEach(id => {
-      dispatch({ type: 'RESTORE_DELETED', payload: id });
-    });
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    dispatch({ type: 'RESTORE_DELETED_MANY', payload: ids });
     setSelectedIds(new Set());
-    showToast(`✅ ${count} record(s) restored successfully`, 'success');
+    showToast(`✅ ${ids.length} record(s) restored successfully`, 'success');
   };
 
   const handlePermanentDeleteSelected = () => {
-    const count = selectedIds.size;
-    if (count === 0) return;
-    if (window.confirm(`⚠️ PERMANENTLY DELETE ${count} selected record(s)?\n\nThis action CANNOT be undone.`)) {
-      selectedIds.forEach(id => {
-        dispatch({ type: 'PERMANENT_DELETE', payload: id });
-      });
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (window.confirm(`⚠️ PERMANENTLY DELETE ${ids.length} selected record(s)?\n\nThis action CANNOT be undone.`)) {
+      dispatch({ type: 'PERMANENT_DELETE_MANY', payload: ids });
       setSelectedIds(new Set());
-      showToast(`${count} record(s) permanently deleted`, 'success');
+      showToast(`${ids.length} record(s) permanently deleted`, 'success');
     }
   };
 
@@ -1054,17 +1050,17 @@ const LiveCodeDisplay = () => {
   const color = secsLeft <= 5 ? '#ef4444' : secsLeft <= 10 ? '#f59e0b' : '#10b981';
 
   return (
-    <div style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '12px', padding: '0.85rem 1rem', marginBottom: '1.25rem', textAlign: 'center' }}>
-      <div style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
-        🖥️ System Expected Code (must match your phone)
+    <div style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '14px', padding: '0.85rem 1rem', marginBottom: '1.25rem', textAlign: 'center' }}>
+      <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '0.35rem' }}>
+        🖥️ Current Live 6-Digit Code
       </div>
-      <div style={{ fontFamily: 'monospace', fontSize: '2rem', fontWeight: 800, letterSpacing: '0.3em', color }}>
+      <div style={{ fontFamily: 'monospace', fontSize: '2.2rem', fontWeight: 800, letterSpacing: '0.3em', color, userSelect: 'all' }}>
         {code}
       </div>
       <div style={{ marginTop: '0.4rem', background: 'rgba(0,0,0,0.15)', borderRadius: '99px', height: '4px', overflow: 'hidden' }}>
         <div style={{ height: '100%', width: `${pct}%`, background: color, transition: 'width 1s linear, background 0.3s' }} />
       </div>
-      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.3rem' }}>Refreshes in {secsLeft}s</div>
+      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>Refreshes in {secsLeft}s</div>
     </div>
   );
 };
@@ -2085,6 +2081,29 @@ const Settings = () => {
 
       const now = new Date().toLocaleString('en-IN');
 
+      // 1. Calculate Unique Registered Vendor Companies
+      const uniqueVendorsSet = new Set((state.vendors || []).map(v => String(v.vendorName || '').trim().toLowerCase()).filter(Boolean));
+      const uniqueVendorCount = uniqueVendorsSet.size;
+
+      // 2. Filter Active Projects belonging ONLY to registered vendors in state.vendors
+      const activeProjects = (state.projects || []).filter(p => {
+        if (!state.vendors || state.vendors.length === 0) return false;
+        const pCode = p.vendorCode ? String(p.vendorCode).trim().toLowerCase() : '';
+        const pClient = p.client ? String(p.client).trim().toLowerCase() : '';
+        return (state.vendors || []).some(v => {
+          const vCode = v.vendorCode ? String(v.vendorCode).trim().toLowerCase() : '';
+          const vName = v.vendorName ? String(v.vendorName).trim().toLowerCase() : '';
+          if (vCode && pCode && (vCode === pCode || String(v.vendorCode).trim() === String(p.vendorCode).trim())) return true;
+          if (vName && pClient) {
+            if (vName === pClient) return true;
+            const normV = vName.replace(/pvt\.?\s*ltd\.?|private\s*limited|inc\.?|corp\.?|llp|gepl/gi, '').replace(/[^a-z0-9]/g, '');
+            const normP = pClient.replace(/pvt\.?\s*ltd\.?|private\s*limited|inc\.?|corp\.?|llp|gepl/gi, '').replace(/[^a-z0-9]/g, '');
+            if (normV && normP && (normV === normP || normP.includes(normV) || normV.includes(normP))) return true;
+          }
+          return false;
+        });
+      });
+
       // ─── SUMMARY SHEET ───
       const wsSummary = wb.addWorksheet('📊 Summary');
       wsSummary.mergeCells('A1:C1');
@@ -2096,46 +2115,156 @@ const Settings = () => {
       const sumHeader = wsSummary.addRow(['Category', 'Total Records', 'Exported At']);
       applyHeaderStyle(sumHeader);
       [
-        ['Vendors',         (state.vendors || []).length,        now],
-        ['Projects',        (state.projects || []).length,       now],
-        ['Users',           (state.users || []).length,          now],
-        ['Deleted Records', (state.deletedRecords || []).length, now],
+        ['Registered Vendor Companies', uniqueVendorCount,              now],
+        ['Vendor Contracts / Plants',  (state.vendors || []).length,   now],
+        ['Active Projects',             activeProjects.length,          now],
+        ['Contract Renewals',          (state.archivedContracts || []).length, now],
+        ['Users',                      (state.users || []).length,             now],
+        ['Deleted Records',            (state.deletedRecords || []).length,    now],
       ].forEach((r, i) => applyRowStyle(wsSummary.addRow(r), i));
-      wsSummary.columns = [{ width: 22 }, { width: 16 }, { width: 28 }];
+      wsSummary.columns = [{ width: 28 }, { width: 16 }, { width: 28 }];
 
       // ─── VENDORS SHEET ───
       const wsVendors = wb.addWorksheet('🏭 Vendors');
-      wsVendors.mergeCells('A1:H1');
+      wsVendors.mergeCells('A1:M1');
       const vTitle = wsVendors.getRow(1);
       vTitle.height = 32;
-      vTitle.getCell(1).value = 'CleanMax — Vendors';
-      applyTitleStyle(vTitle, 8);
+      vTitle.getCell(1).value = 'CleanMax — All Vendors Database';
+      applyTitleStyle(vTitle, 13);
       wsVendors.addRow([]);
-      const vHeader = wsVendors.addRow(['Vendor Name', 'Vendor Code', 'Region', 'Capacity', 'Unit', 'Status', 'Contact', 'Email']);
+      const vHeader = wsVendors.addRow([
+        'Vendor Code', 'Vendor Name', 'Entity', 'Plant Name', 
+        'Capacity', 'Region', 'State', 'City', 
+        'Rate (₹)', 'PO No', 'Starting Date', 'Ending Date', 'Status'
+      ]);
       applyHeaderStyle(vHeader);
       (state.vendors || []).forEach((v, i) => applyRowStyle(wsVendors.addRow([
-        v.vendorName || '', v.vendorCode || '', v.region || '',
-        v.plantCapacity || '', v.capacityUnit || '', v.status || '',
-        v.contactPerson || '', v.email || '',
+        v.vendorCode || '—',
+        v.vendorName || '—',
+        v.cmesEntity || 'CMES',
+        v.plantName || '—',
+        v.plantCapacity ? `${v.plantCapacity} ${v.capacityUnit || 'kWp'}` : '—',
+        v.region || '—',
+        v.state || '—',
+        v.city || '—',
+        Number((Number(v.rate) || 0).toFixed(2)),
+        v.poNumber || '—',
+        v.contractStart || '—',
+        v.contractEnd || '—',
+        v.status || 'Active'
       ]), i));
-      wsVendors.columns = [30,16,18,12,10,12,22,28].map(w => ({ width: w }));
+      wsVendors.columns = [16, 28, 16, 26, 16, 14, 16, 16, 12, 16, 16, 16, 14].map(w => ({ width: w }));
 
       // ─── PROJECTS SHEET ───
       const wsProjects = wb.addWorksheet('📁 Projects');
-      wsProjects.mergeCells('A1:H1');
+      wsProjects.mergeCells('A1:N1');
       const pTitle = wsProjects.getRow(1);
       pTitle.height = 32;
-      pTitle.getCell(1).value = 'CleanMax — Projects';
-      applyTitleStyle(pTitle, 8);
+      pTitle.getCell(1).value = 'CleanMax — All Projects Database';
+      applyTitleStyle(pTitle, 14);
       wsProjects.addRow([]);
-      const pHeader = wsProjects.addRow(['Project Name', 'Project Code', 'Type', 'Capacity', 'Unit', 'Status', 'Location', 'Start Date']);
+      const pHeader = wsProjects.addRow([
+        'Project Code', 'Vendor Code', 'Vendor Name', 'Entity', 'Plant Name', 
+        'Capacity', 'Region', 'State', 'City', 
+        'Rate (₹)', 'PO No', 'Starting Date', 'Ending Date', 'Status'
+      ]);
       applyHeaderStyle(pHeader);
-      (state.projects || []).forEach((p, i) => applyRowStyle(wsProjects.addRow([
-        p.projectName || '', p.projectCode || '', p.type || '',
-        p.capacity || '', p.unit || '', p.status || '',
-        p.location || '', p.startDate || '',
-      ]), i));
-      wsProjects.columns = [28,16,14,12,10,12,22,16].map(w => ({ width: w }));
+      activeProjects.forEach((p, i) => {
+        const matchedVendor = (state.vendors || []).find(v => 
+          (v.vendorCode && p.vendorCode && String(v.vendorCode).trim().toLowerCase() === String(p.vendorCode).trim().toLowerCase()) ||
+          (v.plantName && p.projectName && String(v.plantName).toLowerCase().trim() === String(p.projectName).toLowerCase().trim()) ||
+          (v.vendorName && p.client && String(v.vendorName).toLowerCase().trim() === String(p.client).toLowerCase().trim())
+        );
+
+        applyRowStyle(wsProjects.addRow([
+          p.projectCode || `PRJ-${String(i+1).padStart(4, '0')}`,
+          matchedVendor?.vendorCode || p.vendorCode || '—',
+          matchedVendor?.vendorName || p.client || '—',
+          matchedVendor?.cmesEntity || 'CMES',
+          p.projectName || matchedVendor?.plantName || '—',
+          p.capacity ? `${p.capacity} ${p.unit || 'kWp'}` : matchedVendor?.plantCapacity ? `${matchedVendor.plantCapacity} ${matchedVendor.capacityUnit || 'kWp'}` : '—',
+          matchedVendor?.region || p.location || '—',
+          matchedVendor?.state || '—',
+          matchedVendor?.city || '—',
+          Number((Number(matchedVendor?.rate || 0)).toFixed(2)),
+          matchedVendor?.poNumber || '—',
+          p.startDate || p.completionDate || matchedVendor?.contractStart || '—',
+          matchedVendor?.contractEnd || '—',
+          p.status || matchedVendor?.status || 'Active'
+        ]), i);
+      });
+      wsProjects.columns = [18, 16, 28, 16, 26, 16, 14, 16, 16, 12, 16, 16, 16, 14].map(w => ({ width: w }));
+
+      // ─── CONTRACT RENEWALS SHEET ───
+      const wsRenewals = wb.addWorksheet('🔄 Contract Renewals');
+      wsRenewals.mergeCells('A1:Q1');
+      const rTitle = wsRenewals.getRow(1);
+      rTitle.height = 32;
+      rTitle.getCell(1).value = 'CleanMax — Contract Renewals & Audit Report';
+      applyTitleStyle(rTitle, 17);
+      wsRenewals.addRow([]);
+      const rHeader = wsRenewals.addRow([
+        'Vendor Code', 'Vendor Name', 'Entity', 'New Vendor Code', 'New Vendor Name',
+        'Plant Name', 'Capacity', 'Region', 'State', 'City',
+        'Rate (₹)', 'PO No', 'Starting Date', 'Ending Date', 'Status',
+        'Rate Escalation (%)', 'Logged By & Role'
+      ]);
+      applyHeaderStyle(rHeader);
+
+      let renewalRowIdx = 0;
+      (state.archivedContracts || []).forEach((arch) => {
+        const rateDiff = Number(arch.newRate || 0) - Number(arch.oldRate || 0);
+        const ratePct = arch.oldRate ? ((rateDiff / arch.oldRate) * 100).toFixed(1) + '%' : '0%';
+        const isVendorChanged = arch.newVendorName && arch.newVendorName !== arch.oldVendorName;
+        const newVCode = isVendorChanged ? (arch.newVendorCode || 'NEW') : '—';
+        const newVName = isVendorChanged ? arch.newVendorName : '—';
+
+        applyRowStyle(wsRenewals.addRow([
+          arch.vendorCode || '—',
+          arch.oldVendorName || arch.vendorName || '—',
+          arch.cmesEntity || 'CMES',
+          newVCode,
+          newVName,
+          arch.plantName || '—',
+          `${arch.plantCapacity || 0} ${arch.capacityUnit || 'kWp'}`,
+          arch.region || '—',
+          arch.state || '—',
+          arch.city || '—',
+          Number((Number(arch.newRate || arch.oldRate || arch.rate || 0)).toFixed(2)),
+          arch.newPoNumber || arch.oldPoNumber || arch.poNumber || '—',
+          arch.oldContractStart || '—',
+          arch.oldContractEnd || '—',
+          arch.renewalStatus || 'Renewed (Historical)',
+          ratePct,
+          `${arch.renewedBy || 'Admin'} (${arch.renewedByRole || 'Admin'})`
+        ]), renewalRowIdx++);
+      });
+
+      (state.vendors || []).forEach((v) => {
+        const isPending = String(v.status || '').toLowerCase().includes('expir');
+        const renewalStatus = isPending ? (v.status === 'Expired' ? 'Expired' : 'Expiring Soon') : 'Active';
+
+        applyRowStyle(wsRenewals.addRow([
+          v.vendorCode || '—',
+          v.vendorName || '—',
+          v.cmesEntity || 'CMES',
+          '—',
+          '—',
+          v.plantName || '—',
+          `${v.plantCapacity || 0} ${v.capacityUnit || 'kWp'}`,
+          v.region || '—',
+          v.state || '—',
+          v.city || '—',
+          v.rate || 0,
+          v.poNumber || '—',
+          v.contractStart || '—',
+          v.contractEnd || '—',
+          renewalStatus,
+          '0%',
+          `${v.lastEditedBy || state.currentUser?.name || 'Admin'} (${state.currentUser?.role || 'Admin'})`
+        ]), renewalRowIdx++);
+      });
+      wsRenewals.columns = [14, 26, 12, 16, 26, 26, 16, 12, 14, 16, 14, 16, 15, 15, 22, 18, 24].map(w => ({ width: w }));
 
       // ─── USERS SHEET ───
       const wsUsers = wb.addWorksheet('👤 Users');
@@ -2447,21 +2576,7 @@ const Settings = () => {
                       />
                     </label>
                   </div>
-
-                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Preview your weekly executive summary digest:</span>
-                    <button 
-                      onClick={() => setIsSummaryModalOpen(true)} 
-                      className="btn-ghost" 
-                      style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem', border: '1px solid var(--accent-color)', color: 'var(--accent-color)', borderRadius: '8px', fontWeight: 600 }}
-                    >
-                      Preview Weekly Report
-                    </button>
-                  </div>
                 </div>
-
-                {/* 🤖 AUTOMATED SCHEDULED EXCEL EMAIL DISPATCHER */}
-                <AutomatedReportScheduler />
 
               </div>
             </div>
@@ -2503,21 +2618,70 @@ const Settings = () => {
                 {/* 2FA SETUP MODAL */}
                 {show2FAModal && (
                   <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
-                    <div className="animate-pop" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '20px', padding: '2rem', maxWidth: '460px', width: '100%', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)' }}>
-                      <div style={{ textAlign: 'center', marginBottom: '1.25rem' }}>
+                    <div className="animate-pop" style={{ position: 'relative', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: '24px', padding: '2rem 1.75rem 1.75rem', maxWidth: '460px', width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)', color: 'var(--text-primary)' }}>
+                      
+                      {/* Close Icon (X) Button */}
+                      <button 
+                        onClick={() => setShow2FAModal(false)}
+                        title="Close 2FA Setup"
+                        style={{
+                          position: 'absolute',
+                          top: '1.75rem',
+                          right: '1.5rem',
+                          background: 'var(--bg-app)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: '50%',
+                          width: '36px',
+                          height: '36px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          color: 'var(--text-secondary)',
+                          transition: 'all 0.2s ease',
+                          zIndex: 99
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.color = 'var(--text-primary)';
+                          e.currentTarget.style.borderColor = 'var(--accent-color)';
+                          e.currentTarget.style.transform = 'scale(1.08)';
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.color = 'var(--text-secondary)';
+                          e.currentTarget.style.borderColor = 'var(--border-color)';
+                          e.currentTarget.style.transform = 'scale(1)';
+                        }}
+                      >
+                        <X size={20} />
+                      </button>
+
+                      <div style={{ textAlign: 'center', marginBottom: '1.25rem', paddingLeft: '1rem', paddingRight: '2rem' }}>
                         <div style={{ width: 56, height: 56, borderRadius: '16px', background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.75rem' }}>
                           <Smartphone size={28} color="#10b981" />
                         </div>
-                        <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>Configure 2FA Authenticator</h3>
+                        <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)', lineHeight: 1.3 }}>Configure 2FA Authenticator</h3>
                         <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '0.35rem' }}>Scan with Google Authenticator, Microsoft Authenticator, or 1Password.</p>
                       </div>
 
-                      {/* Clean 2FA QR Code Display */}
-                      <div style={{ background: '#fff', padding: '1rem', borderRadius: '16px', textAlign: 'center', width: '200px', margin: '0 auto 1.25rem', boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}>
+                      {/* Clean 2FA QR Code Display - Perfect Square Box */}
+                      <div style={{ 
+                        background: '#ffffff', 
+                        padding: '12px', 
+                        borderRadius: '16px', 
+                        width: '204px', 
+                        height: '204px', 
+                        margin: '0 auto 1.25rem', 
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.25)', 
+                        border: '2px solid rgba(16,185,129,0.3)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxSizing: 'border-box'
+                      }}>
                         <img
                           src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(`otpauth://totp/CleanMax:${state.currentUser?.email || 'admin@cleanmax.com'}?secret=CLEANMAX23456777&issuer=CleanMax`)}`}
                           alt="2FA QR Code"
-                          style={{ width: 180, height: 180, borderRadius: '8px', display: 'block', margin: '0 auto' }}
+                          style={{ width: 180, height: 180, borderRadius: '8px', display: 'block', objectFit: 'contain' }}
                         />
                       </div>
 
@@ -2530,41 +2694,66 @@ const Settings = () => {
                       <LiveCodeDisplay />
 
                       <div style={{ marginBottom: '1.25rem' }}>
-                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.4rem', textTransform: 'uppercase' }}>Enter Code From Your Phone</label>
+                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.4rem', textTransform: 'uppercase' }}>Enter Code From Your Phone / Backup Code</label>
                         <input
                           type="text"
-                          maxLength={6}
-                          placeholder="e.g. 123456"
+                          maxLength={10}
+                          placeholder="Enter 6-digit OTP or Backup Code"
                           className="premium-input"
-                          style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: '0.2em', fontWeight: 700 }}
+                          style={{ textAlign: 'center', fontSize: '1.2rem', letterSpacing: '0.15em', fontWeight: 700 }}
                           value={test2FACode}
-                          onChange={e => setTest2FACode(e.target.value.replace(/\D/g, ''))}
+                          onChange={e => setTest2FACode(e.target.value)}
                         />
                       </div>
 
-                      <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', padding: '0.75rem', borderRadius: '10px', fontSize: '0.75rem', color: '#f59e0b', marginBottom: '1.5rem' }}>
-                        🔑 <strong>Backup Recovery Code:</strong> <code>9821-4402</code> · Keep this written safely in case you lose your phone.
+                      <div style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', padding: '0.75rem 1rem', borderRadius: '12px', fontSize: '0.78rem', color: '#f59e0b', marginBottom: '1.5rem' }}>
+                        🔑 <strong>Backup Recovery Code:</strong> <code style={{ fontSize: '0.95rem', fontWeight: 700, letterSpacing: '0.05em' }}>9821-4402</code>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '0.15rem' }}>Keep this written safely in case you lose your phone.</div>
                       </div>
 
-                      <button
-                        onClick={() => {
-                          if (!test2FACode || test2FACode.length < 6) {
-                            showToast('Please enter the 6-digit code from Google Authenticator', 'error');
-                            return;
-                          }
-                          const isValid = verifyTOTP('CLEANMAX23456777', test2FACode);
-                          if (isValid) {
-                            setShow2FAModal(false);
-                            showToast('✅ 2FA Code Verified & Activated Successfully!', 'success');
-                          } else {
-                            showToast('❌ Invalid 2FA Code! Check your iPhone Google Authenticator app', 'error');
-                          }
-                        }}
-                        className="btn-premium"
-                        style={{ width: '100%', padding: '0.75rem' }}
-                      >
-                        Verify & Complete 2FA Setup
-                      </button>
+                      <div style={{ display: 'flex', gap: '0.75rem' }}>
+                        <button
+                          type="button"
+                          onClick={() => setShow2FAModal(false)}
+                          style={{
+                            flex: 1,
+                            padding: '0.75rem',
+                            borderRadius: '12px',
+                            background: 'rgba(239,68,68,0.1)',
+                            border: '1px solid rgba(239,68,68,0.3)',
+                            color: '#ef4444',
+                            fontWeight: 700,
+                            fontSize: '0.9rem',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.2)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'}
+                        >
+                          ✖ Close
+                        </button>
+                        <button
+                          onClick={() => {
+                            const cleanInput = test2FACode.trim().replace(/-/g, '');
+                            if (!cleanInput) {
+                              showToast('Please enter the 6-digit code or backup recovery code', 'error');
+                              return;
+                            }
+                            const isBackupMatch = cleanInput === '98214402';
+                            const isValid = isBackupMatch || verifyTOTP('CLEANMAX23456777', cleanInput);
+                            if (isValid) {
+                              setShow2FAModal(false);
+                              showToast(isBackupMatch ? '✅ Verified via Backup Recovery Code! 2FA Activated.' : '✅ 2FA Code Verified & Activated Successfully!', 'success');
+                            } else {
+                              showToast('❌ Invalid Code! Check your authenticator app or click Auto-Fill Code above', 'error');
+                            }
+                          }}
+                          className="btn-premium"
+                          style={{ flex: 2, padding: '0.75rem', fontSize: '0.9rem', fontWeight: 700 }}
+                        >
+                          Verify & Complete
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -2702,6 +2891,7 @@ const Settings = () => {
                           {[
                             { label: 'Unique Vendors', count: uniqueVendorCount, sub: 'Registered Companies', icon: '🏭', color: '#3b82f6' },
                             { label: 'Projects', count: totalProjectsCount, sub: 'Regional Projects', icon: '📁', color: '#10b981' },
+                            { label: 'Contract Renewals', count: (state.archivedContracts || []).length, sub: 'Archived Audits', icon: '🔄', color: '#8b5cf6' },
                             { label: 'Users', count: state.users?.length || 0, sub: 'System Users', icon: '👤', color: '#f59e0b' },
                             { label: 'Deleted Records', count: state.deletedRecords?.length || 0, sub: 'Recycle Bin', icon: '🗑️', color: '#ef4444' },
                           ].map(item => (
@@ -2720,7 +2910,7 @@ const Settings = () => {
                     <div style={{ padding: '0 1.5rem 1rem' }}>
                       <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: '0.5rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Included in export:</p>
                       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                        {['📊 Summary Sheet', '🏭 All Vendors', '📁 All Projects', '👤 All Users', '🗑️ Deleted Archive'].map(tag => (
+                        {['📊 Summary Sheet', '🏭 All Vendors', '📁 All Projects', '🔄 Contract Renewals', '👤 All Users', '🗑️ Deleted Archive'].map(tag => (
                           <span key={tag} style={{ fontSize: '0.75rem', padding: '0.25rem 0.65rem', borderRadius: '99px', background: 'rgba(99,102,241,0.1)', color: '#6366f1', border: '1px solid rgba(99,102,241,0.2)', fontWeight: 600 }}>{tag}</span>
                         ))}
                       </div>

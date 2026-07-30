@@ -130,19 +130,31 @@ export const requestPushPermission = async () => {
   }
 };
 
+export const getUserNotificationPrefs = () => {
+  if (typeof window === 'undefined') return { emailAlerts: true, pushNotifications: false, weeklySummary: true };
+  try {
+    const stored = sessionStorage.getItem('procure360_current_user');
+    if (stored) {
+      const u = JSON.parse(stored);
+      if (u && u.notificationPrefs) {
+        return {
+          emailAlerts: u.notificationPrefs.emailAlerts ?? true,
+          pushNotifications: Boolean(u.notificationPrefs.pushNotifications ?? false),
+          weeklySummary: u.notificationPrefs.weeklySummary ?? true
+        };
+      }
+    }
+  } catch (e) {}
+  return { emailAlerts: true, pushNotifications: false, weeklySummary: true };
+};
+
 export const triggerBrowserPushNotification = (title, message) => {
   try {
     if (typeof window !== 'undefined' && 'Notification' in window) {
-      // Check user preferences
-      const storedUser = sessionStorage.getItem('procure360_current_user');
-      if (storedUser) {
-        try {
-          const user = JSON.parse(storedUser);
-          if (user?.notificationPrefs?.pushNotifications === false) {
-            console.log('Push notification suppressed: user disabled pushNotifications preference');
-            return;
-          }
-        } catch (e) {}
+      const prefs = getUserNotificationPrefs();
+      if (!prefs.pushNotifications) {
+        console.log('Push notification suppressed: user pushNotifications preference is OFF');
+        return;
       }
 
       if (Notification.permission === 'granted') {
@@ -172,6 +184,8 @@ export const sendNotification = (dispatch, {
   existingNotifications = [],
   dismissedKeys = [],
 }) => {
+  const prefs = getUserNotificationPrefs();
+
   // Dedupe: check if notification with same key exists in Firestore store or was dismissed
   if (dedupeKey) {
     const isAlreadyInStore = (existingNotifications || []).some(n => n.dedupeKey === dedupeKey);
@@ -179,13 +193,15 @@ export const sendNotification = (dispatch, {
     if (isAlreadyInStore || isDismissed) return;
   }
 
-  // Play standard notification audio sound locally
-  if (playSound) {
+  // Play standard notification audio sound locally ONLY if pushNotifications pref is ON
+  if (playSound && prefs.pushNotifications) {
     playNotificationSound();
   }
 
-  // Trigger Web Desktop Push Notification ONLY if enabled in user preferences
-  triggerBrowserPushNotification(title, message);
+  // Trigger Web Desktop Push Notification ONLY if pushNotifications pref is ON
+  if (prefs.pushNotifications) {
+    triggerBrowserPushNotification(title, message);
+  }
 
   dispatch({
     type: 'ADD_NOTIFICATION',
@@ -227,6 +243,12 @@ export const notifyMaintenanceMode = (dispatch, { isModeOn, actorName }) => {
 // ─────────────────────────────────────────────
 export const checkContractAlerts = (dispatch, vendors, existingNotifications = [], dismissedKeys = []) => {
   if (!vendors || vendors.length === 0) return;
+
+  const prefs = getUserNotificationPrefs();
+  // If user disabled pushNotifications AND emailAlerts AND weeklySummary, suppress automatic background alerts!
+  if (!prefs.pushNotifications && !prefs.emailAlerts && !prefs.weeklySummary) {
+    return;
+  }
   const now = new Date();
   const weekKey = getISOWeekKey(now);
   const monthKey = getMonthKey(now);

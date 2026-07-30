@@ -440,20 +440,52 @@ const NotificationDropdown = ({
 const GlobalSearchDropdown = ({ query, results, onSelect }) => {
   if (!query) return null;
   return (
-    <div className="glass-panel animate-fade-in-up global-search-dropdown mobile-responsive-width" style={{ position: 'absolute', top: 'calc(100% + 0.5rem)', left: '0', width: '350px', maxHeight: '400px', overflowY: 'auto', zIndex: 100, display: 'flex', flexDirection: 'column' }}>
+    <div 
+      className="glass-panel animate-fade-in-up global-search-dropdown mobile-responsive-width" 
+      style={{ 
+        position: 'absolute', 
+        top: 'calc(100% + 1.2rem)', 
+        right: 0, 
+        left: 'auto',
+        width: 'min(480px, 90vw)', 
+        maxHeight: '340px', 
+        overflowY: 'auto', 
+        zIndex: 99999, 
+        display: 'flex', 
+        flexDirection: 'column',
+        borderRadius: '16px',
+        boxShadow: '0 15px 35px rgba(0,0,0,0.3), 0 0 0 1px var(--border-color)',
+        background: 'var(--bg-card)'
+      }}
+    >
       {results.length === 0 ? (
-        <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>No results found for "{query}"</div>
+        <div style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+          No results found for "{query}"
+        </div>
       ) : (
         results.map((r, i) => (
-          <div key={`${r.type}-${r.id}-${i}`} onClick={() => onSelect(r)} style={{ padding: '1rem', borderBottom: '1px solid var(--border-color)', display: 'flex', gap: '0.75rem', cursor: 'pointer', transition: 'background var(--transition-fast)' }} onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-primary)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
-            <div style={{ marginTop: '0.25rem' }}>
+          <div 
+            key={`${r.type}-${r.id}-${i}`} 
+            onClick={() => onSelect(r)} 
+            style={{ 
+              padding: '0.85rem 1.1rem', 
+              borderBottom: i === results.length - 1 ? 'none' : '1px solid var(--border-color)', 
+              display: 'flex', 
+              gap: '0.75rem', 
+              cursor: 'pointer', 
+              transition: 'background var(--transition-fast)' 
+            }} 
+            onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-primary)'} 
+            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+          >
+            <div style={{ marginTop: '0.2rem', flexShrink: 0 }}>
               {r.type === 'vendor' ? <Building size={18} color="#10b981" /> : r.type === 'project' ? <Briefcase size={18} color="#3b82f6" /> : <User size={18} color="#f59e0b" />}
             </div>
-            <div style={{ flex: 1 }}>
-              <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600 }}>{r.title}</p>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem', display: 'block' }}>{r.subtitle}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</p>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.subtitle}</span>
             </div>
-            <div style={{ alignSelf: 'center', fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.05em' }}>
+            <div style={{ alignSelf: 'center', fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.05em', flexShrink: 0 }}>
               {r.type}
             </div>
           </div>
@@ -464,6 +496,9 @@ const GlobalSearchDropdown = ({ query, results, onSelect }) => {
 };
 
 const Sidebar = ({ currentTab, setCurrentTab, isCollapsed, setIsCollapsed, userRole, isMobile, isMobileMenuOpen, setIsMobileMenuOpen }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const effectiveCollapsed = isCollapsed && !isHovered;
+
   let tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'vendors', label: 'Vendors', icon: Users },
@@ -482,35 +517,44 @@ const Sidebar = ({ currentTab, setCurrentTab, isCollapsed, setIsCollapsed, userR
   }
 
   return (
-    <aside style={{
-      width: isMobile ? '280px' : (isCollapsed ? '72px' : '240px'),
-      flexShrink: 0,
-      background: 'var(--bg-sidebar)',
-      backdropFilter: 'blur(20px)',
-      borderRight: '1px solid var(--border-color)',
-      transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-      display: 'flex',
-      flexDirection: 'column',
-      zIndex: 50,
-      position: isMobile ? 'fixed' : 'relative',
-      height: '100vh',
-      overflow: 'hidden',
-      left: isMobile ? (isMobileMenuOpen ? 0 : '-100%') : 0
-    }}>
+    <aside 
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      style={{
+        width: isMobile ? '280px' : (effectiveCollapsed ? '72px' : '240px'),
+        flexShrink: 0,
+        background: 'var(--bg-sidebar)',
+        backdropFilter: 'blur(20px)',
+        borderRight: '1px solid var(--border-color)',
+        transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+        display: 'flex',
+        flexDirection: 'column',
+        zIndex: 50,
+        position: isMobile ? 'fixed' : 'relative',
+        height: '100vh',
+        overflow: 'hidden',
+        boxShadow: effectiveCollapsed ? 'none' : '4px 0 25px rgba(0,0,0,0.15)',
+        left: isMobile ? (isMobileMenuOpen ? 0 : '-100%') : 0
+      }}
+    >
       {/* Logo + Collapse toggle */}
       <div style={{ padding: '1.25rem 1rem', display: 'flex', alignItems: 'center', gap: '0.75rem', minHeight: '68px', borderBottom: '1px solid var(--border-color)' }}>
         <div style={{ width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <img src={`${import.meta.env.BASE_URL}cleanmax logo (1).png`} alt="CleanMax" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
         </div>
-        {!isCollapsed && (
+        {!effectiveCollapsed && (
           <div style={{ fontSize: '1.3rem', fontWeight: 800, letterSpacing: '-0.04em', whiteSpace: 'nowrap', overflow: 'hidden' }}>
             ProCure<span className="text-gradient">360</span>
           </div>
         )}
         {!isMobile && (
           <button
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            onClick={() => {
+              const next = !isCollapsed;
+              setIsCollapsed(next);
+              try { localStorage.setItem('procure360_sidebar_collapsed', String(next)); } catch (e) {}
+            }}
+            title={isCollapsed ? 'Pin / Keep Sidebar Expanded' : 'Collapse sidebar'}
             style={{
               marginLeft: 'auto', flexShrink: 0,
               background: 'rgba(255,255,255,0.05)',
@@ -541,13 +585,13 @@ const Sidebar = ({ currentTab, setCurrentTab, isCollapsed, setIsCollapsed, userR
                 setCurrentTab(tab.id);
                 if (isMobile) setIsMobileMenuOpen(false);
               }}
-              title={isCollapsed ? tab.label : ''}
+              title={effectiveCollapsed ? tab.label : ''}
               className={`animate-stagger delay-${(idx % 4) + 1}`}
               style={{
                 display: 'flex', alignItems: 'center',
-                gap: isCollapsed ? '0' : '0.75rem',
-                padding: isCollapsed ? '0.8rem' : '0.75rem 0.9rem',
-                justifyContent: isCollapsed ? 'center' : 'flex-start',
+                gap: effectiveCollapsed ? '0' : '0.75rem',
+                padding: effectiveCollapsed ? '0.8rem' : '0.75rem 0.9rem',
+                justifyContent: effectiveCollapsed ? 'center' : 'flex-start',
                 background: isActive ? 'var(--bg-primary)' : 'transparent',
                 border: isActive ? '1px solid var(--border-color)' : '1px solid transparent',
                 borderRadius: 'var(--radius-md)',
@@ -564,7 +608,7 @@ const Sidebar = ({ currentTab, setCurrentTab, isCollapsed, setIsCollapsed, userR
               onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
             >
               <Icon size={20} style={{ color: isActive ? 'var(--accent-color)' : 'inherit', flexShrink: 0 }} strokeWidth={isActive ? 2.5 : 2} />
-              {!isCollapsed && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '0.875rem' }}>{tab.label}</span>}
+              {!effectiveCollapsed && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '0.875rem' }}>{tab.label}</span>}
             </button>
           );
         })}
@@ -573,9 +617,15 @@ const Sidebar = ({ currentTab, setCurrentTab, isCollapsed, setIsCollapsed, userR
   );
 };
 
-export const Layout = ({ children, currentTab, setCurrentTab, onLogout, userRole }) => {
-  // Auto-collapse on small laptop screens (≤1280px); fully collapse on mobile (≤768px)
-  const [isCollapsed, setIsCollapsed] = useState(window.innerWidth <= 1280);
+export const Layout = ({ children, currentTab, setCurrentTab, onLogout, userRole, onSelectVendor, onSelectProject }) => {
+  // Always default to false (expanded) on desktop; remember user preference if saved
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    try {
+      const saved = localStorage.getItem('procure360_sidebar_collapsed');
+      if (saved !== null) return saved === 'true';
+    } catch (e) {}
+    return false; // Default: Always Expanded
+  });
   const [showProfile, setShowProfile] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -587,9 +637,6 @@ export const Layout = ({ children, currentTab, setCurrentTab, onLogout, userRole
     const handleResize = () => {
       const w = window.innerWidth;
       setIsMobile(w <= 768);
-      // Auto-collapse sidebar on small laptops, expand on wide screens
-      if (w <= 1280 && w > 768) setIsCollapsed(true);
-      if (w > 1280) setIsCollapsed(false);
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -614,26 +661,59 @@ export const Layout = ({ children, currentTab, setCurrentTab, onLogout, userRole
     const results = [];
     
     (state.vendors || []).forEach(v => {
-      if ((v.vendorName && v.vendorName.toLowerCase().includes(q)) || (v.vendorCode && v.vendorCode.toLowerCase().includes(q)) || (v.city && v.city.toLowerCase().includes(q)) || (v.state && v.state.toLowerCase().includes(q))) {
-        results.push({ type: 'vendor', id: v.id, title: v.vendorName, subtitle: `${v.city || ''}, ${v.state || ''} • ${v.status}` });
+      if (!v) return;
+      const vName = v.vendorName || '';
+      const vCode = v.vendorCode || '';
+      const plant = v.plantName || '';
+      const city = v.city || '';
+      const stateName = v.state || '';
+      const status = v.status || '';
+
+      if (vName.toLowerCase().includes(q) || vCode.toLowerCase().includes(q) || plant.toLowerCase().includes(q) || city.toLowerCase().includes(q) || stateName.toLowerCase().includes(q)) {
+        results.push({
+          type: 'vendor',
+          id: v.id,
+          title: vName,
+          subtitle: `${vCode ? `${vCode} • ` : ''}${plant ? `${plant}, ` : ''}${city ? `${city}, ` : ''}${stateName} • ${status}`
+        });
       }
     });
 
     (state.projects || []).forEach(p => {
-      if ((p.name && p.name.toLowerCase().includes(q)) || (p.location && p.location.toLowerCase().includes(q)) || (p.phase && p.phase.toLowerCase().includes(q))) {
-        results.push({ type: 'project', id: p.id, title: p.name, subtitle: `${p.location} • ${p.phase}` });
+      if (!p) return;
+      const pName = p.projectName || p.name || '';
+      const pCode = p.projectCode || '';
+      const client = p.client || p.location || '';
+
+      if (pName.toLowerCase().includes(q) || pCode.toLowerCase().includes(q) || client.toLowerCase().includes(q)) {
+        results.push({
+          type: 'project',
+          id: p.id,
+          title: pName,
+          subtitle: `${pCode ? `${pCode} • ` : ''}${client} • ${p.capacity || 0} ${p.unit || 'MWp'}`
+        });
       }
     });
 
     if (userRole === 'admin') {
       (state.users || []).forEach(u => {
-        if ((u.name && u.name.toLowerCase().includes(q)) || (u.email && u.email.toLowerCase().includes(q)) || (u.role && u.role.toLowerCase().includes(q))) {
-          results.push({ type: 'user', id: u.id, title: u.name, subtitle: `${u.email} • ${u.role}` });
+        if (!u) return;
+        const uName = u.name || '';
+        const uEmail = u.email || '';
+        const uRole = u.role || '';
+
+        if (uName.toLowerCase().includes(q) || uEmail.toLowerCase().includes(q) || uRole.toLowerCase().includes(q)) {
+          results.push({
+            type: 'user',
+            id: u.id,
+            title: uName,
+            subtitle: `${uEmail} • ${uRole}`
+          });
         }
       });
     }
     
-    return results.slice(0, 10);
+    return results.slice(0, 12);
   }, [globalSearchQuery, state.vendors, state.projects, state.users, userRole]);
 
   useEffect(() => {
@@ -649,9 +729,24 @@ export const Layout = ({ children, currentTab, setCurrentTab, onLogout, userRole
   const handleSearchResultClick = (result) => {
     setGlobalSearchQuery('');
     setIsSearchFocused(false);
-    if (result.type === 'vendor') setCurrentTab('vendors');
-    else if (result.type === 'project') setCurrentTab('projects');
-    else if (result.type === 'user') setCurrentTab('employees');
+    if (result.type === 'vendor') {
+      const match = (state.vendors || []).find(v => v.id === result.id || (v.vendorName && v.vendorName.toLowerCase() === result.title.toLowerCase()));
+      const vName = match ? match.vendorName : result.title;
+      if (onSelectVendor) {
+        onSelectVendor(vName);
+      } else {
+        setCurrentTab('vendors');
+      }
+    } else if (result.type === 'project') {
+      const match = (state.projects || []).find(p => p.id === result.id || (p.projectName && p.projectName.toLowerCase() === result.title.toLowerCase()) || (p.name && p.name.toLowerCase() === result.title.toLowerCase()));
+      if (onSelectProject) {
+        onSelectProject(match || result);
+      } else {
+        setCurrentTab('projects');
+      }
+    } else if (result.type === 'user') {
+      setCurrentTab('employees');
+    }
   };
 
   const currentUserId = state.currentUser?.id || state.currentUser?.email || state.currentUser?.name || 'default_user';

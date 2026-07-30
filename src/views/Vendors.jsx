@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useDeferredValue } from 'react';
 import { useProcure } from '../context/ProcureContext';
 import { Search, Plus, Download, Trash2, X, GitCompare, Mail, Phone, FileText, User, Building, Edit2, Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
@@ -6,7 +6,7 @@ import ExcelJS from 'exceljs';
 import { sendNotification, notifyDeletion, notifyNewVendor } from '../utils/notify';
 import html2canvas from 'html2canvas';
 import { IndiaMap } from './RegionMap';
-import { REGION_CENTERS, normalizeStatus, getStatusClass, getCapacityInMW, safeFormatDate, safeFormatDateTime, safeFormatNumber } from '../utils/constants';
+import { REGION_CENTERS, normalizeStatus, getStatusClass, getCapacityInMW, safeFormatDate, safeFormatDateTime, safeFormatNumber, formatDateToISO } from '../utils/constants';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -868,8 +868,8 @@ const VendorPortfolioModal = ({ vendorName, onClose }) => {
         <VendorRegistrationForm
           initialData={{
             ...editingPlant,
-            contractStart: new Date(editingPlant.contractStart).toISOString().split('T')[0],
-            contractEnd: new Date(editingPlant.contractEnd).toISOString().split('T')[0]
+            contractStart: formatDateToISO(editingPlant.contractStart),
+            contractEnd: formatDateToISO(editingPlant.contractEnd)
           }}
           isEditing={true}
           onClose={() => setEditingPlant(null)}
@@ -879,7 +879,7 @@ const VendorPortfolioModal = ({ vendorName, onClose }) => {
   );
 };
 
-const Vendors = ({ initialFilter = '' }) => {
+const Vendors = ({ initialFilter = '', autoOpenVendor = null, onClearAutoOpen }) => {
   const { state, dispatch, showToast } = useProcure();
   const [searchTerm, setSearchTerm] = useState(initialFilter);
   const [isExporting, setIsExporting] = useState(false);
@@ -890,17 +890,34 @@ const Vendors = ({ initialFilter = '' }) => {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showDrawer, setShowDrawer] = useState(false);
   const [showComparison, setShowComparison] = useState(false);
-  const [portfolioVendor, setPortfolioVendor] = useState(null);
+  const [portfolioVendor, setPortfolioVendor] = useState(autoOpenVendor);
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 25;
+
+  useEffect(() => {
+    if (initialFilter) {
+      setSearchTerm(initialFilter);
+    }
+  }, [initialFilter]);
+
+  useEffect(() => {
+    if (autoOpenVendor) {
+      setPortfolioVendor(autoOpenVendor);
+    }
+  }, [autoOpenVendor]);
+
+  const handleClosePortfolio = () => {
+    setPortfolioVendor(null);
+    if (onClearAutoOpen) onClearAutoOpen();
+  };
+
+  const deferredSearchTerm = useDeferredValue(searchTerm);
 
   // Reset page on search or sort change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, sortConfig]);
+  }, [deferredSearchTerm, sortConfig]);
 
-  // Debounced search logic could be added here, simplified for now
-  
   const filteredAndSortedVendors = useMemo(() => {
     let result = [...(state.vendors || [])];
 
@@ -960,8 +977,8 @@ const Vendors = ({ initialFilter = '' }) => {
       };
     });
 
-    if (searchTerm) {
-      const lowerSearch = searchTerm.toLowerCase();
+    if (deferredSearchTerm) {
+      const lowerSearch = deferredSearchTerm.toLowerCase();
       groupedResult = groupedResult.filter(v => 
         (v.vendorCode && v.vendorCode.toLowerCase().includes(lowerSearch)) || 
         (v.vendorName && v.vendorName.toLowerCase().includes(lowerSearch)) ||
@@ -982,7 +999,7 @@ const Vendors = ({ initialFilter = '' }) => {
     });
 
     return groupedResult;
-  }, [state.vendors, searchTerm, sortConfig]);
+  }, [state.vendors, deferredSearchTerm, sortConfig]);
 
   const paginatedVendors = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -1506,7 +1523,7 @@ const Vendors = ({ initialFilter = '' }) => {
       {portfolioVendor && (
         <VendorPortfolioModal 
           vendorName={portfolioVendor} 
-          onClose={() => setPortfolioVendor(null)} 
+          onClose={handleClosePortfolio} 
         />
       )}
 

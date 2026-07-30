@@ -1,21 +1,44 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useDeferredValue } from 'react';
 import { useProcure } from '../context/ProcureContext';
-import { Plus, Search, Trash2, Edit2, X, FileText, Calendar, MapPin, Tag, Box, Hash, Briefcase, Building2, Zap, Clock, User, ChevronRight, TrendingUp, Shield, Info, Download } from 'lucide-react';
+import { Plus, Search, Trash2, Edit2, X, FileText, Calendar, MapPin, Tag, Box, Hash, Briefcase, Building2, Zap, Clock, User, ChevronRight, TrendingUp, Shield, Info, Download, RotateCw } from 'lucide-react';
 import { getStatusClass, safeFormatDate, safeFormatDateTime, safeFormatNumber } from '../utils/constants';
-import { sendNotification, notifyDeletion, notifyNewProject } from '../utils/notify';
+import { sendNotification, notifyDeletion, notifyNewProject, notifyRenewal } from '../utils/notify';
+import { v4 as uuidv4 } from 'uuid';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import ExcelJS from 'exceljs';
 
+const statusColors = {
+  'Active':        '#10b981',
+  'Expiring Soon': '#f59e0b',
+  'Expired':       '#ef4444',
+  'In Progress':   '#10b981',
+  'Completed':     '#3b82f6',
+  'Planning':      '#f59e0b',
+};
+
 /* ─────────────────── Registration / Edit Form ─────────────────── */
-const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = false }) => {
+const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = false, initialRenewState = false }) => {
   const { state, dispatch, showToast } = useProcure();
+  const [isRenewed, setIsRenewed] = useState(initialRenewState);
   const [formData, setFormData] = useState(initialData || {
-    projectName: '',
-    client: '',
+    projectCode: '',
     vendorCode: '',
+    client: '',
+    cmesEntity: 'CMES',
+    contactPerson: '',
+    email: '',
+    region: 'South',
+    state: '',
+    city: '',
+    projectName: '',
     capacity: '',
-    unit: 'MWp',
-    status: 'Planning',
-    completionDate: new Date().toISOString().split('T')[0],
+    unit: 'kWp',
+    poNumber: '',
+    startDate: new Date().toISOString().split('T')[0],
+    completionDate: new Date(Date.now() + 31536000000).toISOString().split('T')[0],
+    rate: '',
+    status: 'In Progress'
   });
 
   const handleChange = (e) => {
@@ -37,20 +60,74 @@ const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = fals
     historyMap.set(currentUser, { name: currentUser, time: now });
     const editedByHistory = Array.from(historyMap.values());
 
+    const payloadData = {
+      ...formData,
+      capacity: Number(formData.capacity) || 0,
+      rate: Number(formData.rate) || 0,
+      editedByHistory,
+      lastEditedBy: currentUser,
+      lastEditedById: state.currentUser?.id || null,
+      lastEditedAt: now
+    };
+
     if (isEditing) {
-      dispatch({ type: 'UPDATE_PROJECT', payload: { ...formData, capacity: Number(formData.capacity), editedByHistory, lastEditedBy: currentUser, lastEditedById: state.currentUser?.id || null, lastEditedAt: now } });
+      if (isRenewed) {
+        payloadData.status = 'Active';
+        const autoSnapshot = {
+          id: `renew-prj-${uuidv4()}`,
+          vendorId: initialData?.id || formData.id || `prj-${Date.now()}`,
+          vendorCode: formData.vendorCode || formData.projectCode || 'PRJ',
+          vendorName: formData.client || formData.vendorName || 'CleanMax Client',
+          oldVendorName: initialData?.client || formData.client,
+          newVendorName: formData.client,
+          plantName: formData.projectName,
+          region: formData.region || 'South',
+          state: formData.state || '—',
+          city: formData.city || '—',
+          oldPoNumber: initialData?.poNumber || formData.poNumber || '—',
+          newPoNumber: formData.poNumber,
+          oldRate: Number(initialData?.rate) || Number(formData.rate) || 0,
+          newRate: Number(formData.rate) || 0,
+          oldContractStart: initialData?.startDate || formData.startDate,
+          oldContractEnd: initialData?.completionDate || formData.completionDate,
+          newContractStart: formData.startDate,
+          newContractEnd: formData.completionDate,
+          plantCapacity: formData.capacity,
+          capacityUnit: formData.unit,
+          renewalStatus: 'Renewed',
+          renewedAt: now,
+          renewedBy: currentUser,
+          renewedByRole: state.currentUser?.role || 'Admin',
+          isProjectRenewal: true
+        };
+
+        setDoc(doc(db, 'archivedContracts', autoSnapshot.id), autoSnapshot).catch(() => {});
+        dispatch({ type: 'ADD_ARCHIVED_CONTRACT', payload: autoSnapshot });
+        try {
+          notifyRenewal(dispatch, {
+            vendorName: formData.client || formData.projectName,
+            plantName: formData.projectName,
+            newEndDate: formData.completionDate,
+            actorName: currentUser
+          });
+        } catch (e) {}
+      }
+
+      dispatch({ type: 'UPDATE_PROJECT', payload: payloadData });
       sendNotification(dispatch, {
-        title: '✏️ Project Updated',
-        message: `Project "${formData.projectName}" was edited`,
-        type: 'info',
+        title: isRenewed ? '🔄 Project Contract Renewed' : '✏️ Project Updated',
+        message: isRenewed 
+          ? `Project "${formData.projectName}" contract was renewed & snapshot added to Renewals` 
+          : `Project "${formData.projectName}" was edited`,
+        type: isRenewed ? 'success' : 'info',
         targetRoles: ['admin'],
         actor: currentUser,
         actorRole: state.currentUser?.role,
       });
-      showToast('Project updated successfully', 'success');
+      showToast(isRenewed ? 'Project contract renewed & snapshot saved to Renewals!' : 'Project updated successfully', 'success');
     } else {
       const projectCode = formData.projectCode || `PRJ-${new Date().getFullYear()}-${String(Math.floor(1 + Math.random() * 99)).padStart(2, '0')}`;
-      dispatch({ type: 'ADD_PROJECT', payload: { ...formData, projectCode, capacity: Number(formData.capacity), editedByHistory, lastEditedBy: currentUser, lastEditedById: state.currentUser?.id || null, lastEditedAt: now } });
+      dispatch({ type: 'ADD_PROJECT', payload: { ...payloadData, projectCode } });
       sendNotification(dispatch, {
         title: '✅ New Project Created',
         message: `Project "${formData.projectName}" (${formData.capacity} ${formData.unit}) was added`,
@@ -73,62 +150,155 @@ const ProjectRegistrationForm = ({ onClose, initialData = null, isEditing = fals
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)' }}><X size={24} /></button>
         </div>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          
+          {/* Section 1: Vendor Details */}
           <div>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent-color)' }}>General Information</h3>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent-color)' }}>Vendor Details</h3>
             <div className="responsive-grid">
               <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Project Name *</label>
-                <input required type="text" name="projectName" className="premium-input project-modal-input" value={formData.projectName} onChange={handleChange} />
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Vendor Code *</label>
+                <input required type="text" name="vendorCode" placeholder="e.g. 100512" className="premium-input project-modal-input" value={formData.vendorCode || ''} onChange={handleChange} />
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Vendor Name *</label>
-                <input required type="text" name="client" className="premium-input project-modal-input" value={formData.client} onChange={handleChange} />
+                <input required type="text" name="client" placeholder="e.g. FEATUR GREEN ENERGY SOLUTIONS" className="premium-input project-modal-input" value={formData.client || ''} onChange={handleChange} />
               </div>
               <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Vendor Code *</label>
-                <input required type="text" name="vendorCode" placeholder="e.g. VND-1001" className="premium-input project-modal-input" value={formData.vendorCode || ''} onChange={handleChange} />
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>CMES Entity *</label>
+                <select name="cmesEntity" className="premium-input project-modal-input" value={formData.cmesEntity || 'CMES'} onChange={handleChange}>
+                  {['CMES', 'COGEN', 'JUPITER', 'POWER 1'].map(e => <option key={e} value={e}>{e}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Contact Person <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 400 }}>(Optional)</span></label>
+                <input type="text" name="contactPerson" placeholder="e.g. Rahul Sharma" className="premium-input project-modal-input" value={formData.contactPerson || ''} onChange={handleChange} />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Vendor Email <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 400 }}>(Optional)</span></label>
+                <input type="email" name="email" placeholder="e.g. contact@vendor.com" className="premium-input project-modal-input" value={formData.email || ''} onChange={handleChange} />
               </div>
             </div>
           </div>
+
+          {/* Section 2: Project Location */}
           <div>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent-color)' }}>Technical Details</h3>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent-color)' }}>Project Location</h3>
             <div className="responsive-grid">
-              <div style={{ display: 'flex', gap: '1rem', width: '100%' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Region</label>
+                <select name="region" className="premium-input project-modal-input" value={formData.region || 'South'} onChange={handleChange}>
+                  {['North', 'South', 'East', 'West', 'Central'].map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>State</label>
+                <input type="text" name="state" className="premium-input project-modal-input" placeholder="e.g. Karnataka" value={formData.state || ''} onChange={handleChange} />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>City</label>
+                <input type="text" name="city" className="premium-input project-modal-input" placeholder="e.g. Bangalore" value={formData.city || formData.location || ''} onChange={handleChange} />
+              </div>
+            </div>
+          </div>
+
+          {/* Section 3: Plant Details */}
+          <div>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent-color)' }}>Plant Details</h3>
+            <div className="responsive-grid">
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Plant Name *</label>
+                <input required type="text" name="projectName" placeholder="e.g. TATA AUTOCOMP - 149.27kWp" className="premium-input project-modal-input" value={formData.projectName || ''} onChange={handleChange} />
+              </div>
+              <div style={{ display: 'flex', gap: '1rem' }}>
                 <div style={{ flex: 2 }}>
                   <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Capacity *</label>
-                  <input required type="number" name="capacity" className="premium-input project-modal-input" value={formData.capacity} onChange={handleChange} />
+                  <input required type="number" name="capacity" className="premium-input project-modal-input" value={formData.capacity || ''} onChange={handleChange} />
                 </div>
                 <div style={{ flex: 1 }}>
                   <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Unit</label>
-                  <select name="unit" className="premium-input project-modal-input" value={formData.unit} onChange={handleChange}>
+                  <select name="unit" className="premium-input project-modal-input" value={formData.unit || 'kWp'} onChange={handleChange}>
+                    <option value="kWp">kWp</option>
                     <option value="MWp">MWp</option>
                     <option value="MW">MW</option>
-                    <option value="kWp">kWp</option>
                   </select>
                 </div>
               </div>
             </div>
           </div>
+
+          {/* Section 4: Contract & Commercials */}
           <div>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent-color)' }}>Planning</h3>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem', color: 'var(--accent-color)' }}>Contract & Commercials</h3>
             <div className="responsive-grid">
               <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Target Completion Date *</label>
-                <input required type="date" name="completionDate" className="premium-input project-modal-input" value={formData.completionDate} onChange={handleChange} />
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>PO Number *</label>
+                <input required type="text" name="poNumber" placeholder="e.g. 4600000572" className="premium-input project-modal-input" value={formData.poNumber || ''} onChange={handleChange} />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Contract Start *</label>
+                <input required type="date" name="startDate" className="premium-input project-modal-input" value={formData.startDate || ''} onChange={handleChange} />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Contract End / Target Date *</label>
+                <input required type="date" name="completionDate" className="premium-input project-modal-input" value={formData.completionDate || ''} onChange={handleChange} />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Rate (₹/unit) *</label>
+                <input required type="number" step="0.01" name="rate" placeholder="e.g. 4075" className="premium-input project-modal-input" value={formData.rate || ''} onChange={handleChange} />
               </div>
               <div>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.875rem', fontWeight: 600 }}>Status</label>
-                <select name="status" className="premium-input project-modal-input" value={formData.status} onChange={handleChange}>
+                <select name="status" className="premium-input project-modal-input" value={formData.status || 'In Progress'} onChange={handleChange}>
                   <option value="Planning">Planning</option>
                   <option value="In Progress">In Progress</option>
                   <option value="Completed">Completed</option>
+                  <option value="Active">Active</option>
+                  <option value="Expiring Soon">Expiring Soon</option>
+                  <option value="Expired">Expired</option>
                 </select>
               </div>
             </div>
           </div>
+
+          {/* Section 5: Contract Renewal Toggle */}
+          <div style={{
+            background: isRenewed ? 'rgba(16, 185, 129, 0.08)' : 'rgba(59, 130, 246, 0.04)',
+            border: `1.5px solid ${isRenewed ? '#10b981' : 'rgba(59, 130, 246, 0.2)'}`,
+            padding: '1.25rem 1.5rem',
+            borderRadius: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            transition: 'all 0.3s ease'
+          }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <RotateCw size={16} color={isRenewed ? '#10b981' : 'var(--accent-color)'} /> Mark as Contract Renewal
+              </div>
+              <div className="text-secondary" style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
+                Toggle <strong>ON</strong> to create a historical contract snapshot in the <strong>Renewals</strong> tab and archive previous contract terms.
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '0.6rem', userSelect: 'none' }}>
+              <input 
+                type="checkbox" 
+                checked={isRenewed} 
+                onChange={(e) => setIsRenewed(e.target.checked)} 
+                style={{ width: 20, height: 20, accentColor: '#10b981', cursor: 'pointer' }} 
+              />
+              <span style={{ fontWeight: 800, fontSize: '0.88rem', color: isRenewed ? '#10b981' : 'var(--text-secondary)' }}>
+                {isRenewed ? 'YES (Renewed)' : 'NO'}
+              </span>
+            </label>
+          </div>
+
           <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: '2rem' }}>
             <button type="button" onClick={onClose} className="btn-ghost" style={{ padding: '0.75rem 2rem' }}>Cancel</button>
-            <button type="submit" className="btn-premium" style={{ padding: '0.75rem 2rem' }}>Save Project</button>
+            <button type="submit" className="btn-premium" style={{ padding: '0.75rem 2rem' }}>
+              {isRenewed ? 'Save & Archive Renewal' : 'Save Project'}
+            </button>
           </div>
         </form>
       </div>
@@ -154,12 +324,12 @@ const ProjectPortfolioModal = ({ project, onClose, onEdit }) => {
     return (state.vendors || []).find(v => v && String(v.vendorName).trim().toLowerCase() === projectVName) || null;
   }, [project, state.vendors]);
 
-  const statusColors = {
+  const modalStatusColors = {
     'In Progress': { bg: 'rgba(16,185,129,0.12)', color: '#10b981', dot: '#10b981' },
     'Completed':   { bg: 'rgba(59,130,246,0.12)',  color: '#3b82f6', dot: '#3b82f6' },
     'Planning':    { bg: 'rgba(251,191,36,0.15)',   color: '#f59e0b', dot: '#f59e0b' },
   };
-  const sc = statusColors[project?.status] || statusColors['Planning'];
+  const sc = modalStatusColors[project?.status] || modalStatusColors['Planning'];
 
   const contractDaysLeft = useMemo(() => {
     if (!vendorInfo?.contractEnd) return null;
@@ -240,12 +410,21 @@ const ProjectPortfolioModal = ({ project, onClose, onEdit }) => {
             {/* Action buttons */}
             <div style={{ display: 'flex', gap: '0.5rem', marginLeft: '1rem', flexShrink: 0 }}>
               {onEdit && (
-                <button
-                  onClick={() => { onClose(); onEdit(project); }}
-                  style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '10px', padding: '0.6rem', cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', fontWeight: 600, backdropFilter: 'blur(8px)' }}
-                >
-                  <Edit2 size={15} /> Edit
-                </button>
+                <>
+                  <button
+                    onClick={() => { onClose(); onEdit(project, true); }}
+                    style={{ background: 'rgba(16, 185, 129, 0.25)', border: '1px solid rgba(16, 185, 129, 0.4)', borderRadius: '10px', padding: '0.6rem 0.85rem', cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', fontWeight: 700, backdropFilter: 'blur(8px)' }}
+                    title="Renew this project contract and archive snapshot to Renewals tab"
+                  >
+                    <RotateCw size={14} /> Renew Contract
+                  </button>
+                  <button
+                    onClick={() => { onClose(); onEdit(project, false); }}
+                    style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '10px', padding: '0.6rem', cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', fontWeight: 600, backdropFilter: 'blur(8px)' }}
+                  >
+                    <Edit2 size={15} /> Edit
+                  </button>
+                </>
               )}
               <button
                 onClick={onClose}
@@ -401,19 +580,39 @@ const ProjectPortfolioModal = ({ project, onClose, onEdit }) => {
 };
 
 /* ─────────────────── Main Projects View ─────────────────── */
-const Projects = () => {
+const Projects = ({ initialFilter = '', autoOpenProject = null, onClearAutoOpen }) => {
   const { state, dispatch, showToast } = useProcure();
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialFilter);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showDrawer, setShowDrawer] = useState(false);
   const [editingProject, setEditingProject] = useState(null);
-  const [selectedProject, setSelectedProject] = useState(null);
+  const [selectedProject, setSelectedProject] = useState(autoOpenProject);
   const [currentPage, setCurrentPage] = useState(1);
+  const [isExporting, setIsExporting] = useState(false);
   const pageSize = 25;
+
+  useEffect(() => {
+    if (initialFilter) {
+      setSearchTerm(initialFilter);
+    }
+  }, [initialFilter]);
+
+  useEffect(() => {
+    if (autoOpenProject) {
+      setSelectedProject(autoOpenProject);
+    }
+  }, [autoOpenProject]);
+
+  const handleCloseProjectModal = () => {
+    setSelectedProject(null);
+    if (onClearAutoOpen) onClearAutoOpen();
+  };
 
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm]);
+
+  const deferredSearchTerm = useDeferredValue(searchTerm);
 
   const normalizeName = (str) => {
     if (!str) return '';
@@ -423,31 +622,56 @@ const Projects = () => {
       .replace(/[^a-z0-9]/g, '');
   };
 
+  // Pre-indexed O(1) vendor maps to avoid O(N^2) scanning on every render frame
+  const vendorMaps = useMemo(() => {
+    const byCode = new Map();
+    const byName = new Map();
+    const byNormName = new Map();
+    const byFirstWord = new Map();
+
+    (state.vendors || []).forEach(v => {
+      if (!v) return;
+      if (v.vendorCode) {
+        byCode.set(String(v.vendorCode).trim().toLowerCase(), v);
+        byCode.set(String(v.vendorCode).trim(), v);
+      }
+      if (v.vendorName) {
+        const trimmedName = String(v.vendorName).trim().toLowerCase();
+        byName.set(trimmedName, v);
+        const norm = normalizeName(v.vendorName);
+        if (norm) byNormName.set(norm, v);
+
+        const words = trimmedName.split(/[\s\-.,]+/).filter(w => w.length > 3);
+        if (words.length > 0 && !byFirstWord.has(words[0])) {
+          byFirstWord.set(words[0], v);
+        }
+      }
+    });
+
+    return { byCode, byName, byNormName, byFirstWord };
+  }, [state.vendors]);
+
   const getProjectVendorCode = (p) => {
     if (p.vendorCode && p.vendorCode !== '—') return p.vendorCode;
-    if (!p.client || !state.vendors) return '—';
+    if (!p.client) return '—';
     
-    // 1. Try exact match first
     const clientName = String(p.client).trim().toLowerCase();
-    let match = (state.vendors || []).find(v => v && v.vendorName && String(v.vendorName).trim().toLowerCase() === clientName);
+    
+    // 1. O(1) Exact name match
+    let match = vendorMaps.byName.get(clientName);
     if (match?.vendorCode) return match.vendorCode;
 
-    // 2. Try normalized fuzzy match (ignoring hyphens, spaces, Pvt Ltd, etc.)
+    // 2. O(1) Normalized match
     const normClient = normalizeName(p.client);
-    if (normClient.length > 2) {
-      match = (state.vendors || []).find(v => {
-        if (!v || !v.vendorName) return false;
-        const normVendor = normalizeName(v.vendorName);
-        return normVendor === normClient || (normVendor.length > 3 && normClient.includes(normVendor)) || (normClient.length > 3 && normVendor.includes(normClient));
-      });
+    if (normClient) {
+      match = vendorMaps.byNormName.get(normClient);
       if (match?.vendorCode) return match.vendorCode;
     }
 
-    // 3. Fallback: match by first main word
+    // 3. O(1) First word match
     const words = clientName.split(/[\s\-.,]+/).filter(w => w.length > 3);
     if (words.length > 0) {
-      const firstWord = words[0];
-      match = (state.vendors || []).find(v => v && v.vendorName && String(v.vendorName).toLowerCase().includes(firstWord));
+      match = vendorMaps.byFirstWord.get(words[0]);
       if (match?.vendorCode) return match.vendorCode;
     }
 
@@ -458,11 +682,11 @@ const Projects = () => {
     const vCode = getProjectVendorCode(p);
     let matchingVendor = null;
     if (vCode && vCode !== '—') {
-      matchingVendor = (state.vendors || []).find(v => v && v.vendorCode && String(v.vendorCode).trim() === String(vCode).trim());
+      matchingVendor = vendorMaps.byCode.get(String(vCode).trim().toLowerCase()) || vendorMaps.byCode.get(String(vCode).trim());
     }
     if (!matchingVendor && p.client) {
       const pClientNorm = normalizeName(p.client);
-      matchingVendor = (state.vendors || []).find(v => v && v.vendorName && normalizeName(v.vendorName) === pClientNorm);
+      matchingVendor = vendorMaps.byNormName.get(pClientNorm) || vendorMaps.byName.get(String(p.client).trim().toLowerCase());
     }
 
     const endDate = matchingVendor?.contractEnd || p.contractEnd || p.targetDate;
@@ -486,13 +710,33 @@ const Projects = () => {
     const raw = String(p.status || '').toLowerCase().trim();
     if (raw.includes('expired')) return 'Expired';
     if (raw.includes('expiring')) return 'Expiring Soon';
-    return 'Active'; // 'Completed', 'In Progress', 'Planning', 'Active' -> ALL become 'Active'
+    return 'Active';
+  };
+
+  const isProjectVendorRegistered = (p) => {
+    if (!state.vendors || state.vendors.length === 0) return false;
+    const vCode = getProjectVendorCode(p);
+    if (vCode && vCode !== '—') {
+      if (vendorMaps.byCode.has(String(vCode).trim().toLowerCase()) || vendorMaps.byCode.has(String(vCode).trim())) return true;
+    }
+    if (p.client) {
+      const norm = normalizeName(p.client);
+      if (norm && vendorMaps.byNormName.has(norm)) return true;
+      if (vendorMaps.byName.has(String(p.client).trim().toLowerCase())) return true;
+    }
+    return false;
   };
 
   const projects = useMemo(() => {
-    let result = [...(state.projects || [])];
-    if (searchTerm) {
-      const q = searchTerm.toLowerCase();
+    // If no vendors exist in the system, NO projects should ever be displayed!
+    if (!state.vendors || state.vendors.length === 0) {
+      return [];
+    }
+
+    let result = (state.projects || []).filter(p => isProjectVendorRegistered(p));
+
+    if (deferredSearchTerm) {
+      const q = deferredSearchTerm.toLowerCase();
       result = result.filter(p => {
         const effStatus = getProjectEffectiveStatus(p).toLowerCase();
         return (
@@ -505,7 +749,7 @@ const Projects = () => {
     }
     result.sort((a, b) => (b.projectCode || '').localeCompare(a.projectCode || ''));
     return result;
-  }, [state.projects, searchTerm, state.vendors]);
+  }, [state.projects, state.vendors, deferredSearchTerm, vendorMaps]);
 
   const paginatedProjects = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -545,30 +789,16 @@ const Projects = () => {
     }
   };
 
-  const statusColors = {
-    'Active':        '#10b981',
-    'Expiring Soon': '#f59e0b',
-    'Expired':       '#ef4444',
-    'In Progress':   '#10b981',
-    'Completed':     '#3b82f6',
-    'Planning':      '#f59e0b',
-  };
-
-  /* ── Excel Export with Expiry Highlighting ── */
-  const [isExporting, setIsExporting] = useState(false);
-
   const handleExportProjects = async () => {
     setIsExporting(true);
-    showToast('📦 Preparing projects export...', 'info');
     try {
       const wb = new ExcelJS.Workbook();
-      wb.creator = 'CleanMax System';
+      wb.creator = 'CleanMax Analytics';
       wb.created = new Date();
 
       const ws = wb.addWorksheet('Projects Pipeline');
 
-      const colCount = 8;
-      ws.mergeCells(`A1:H2`);
+      ws.mergeCells('A1:N2');
       const titleRow = ws.getRow(1);
       titleRow.height = 36;
       titleRow.getCell(1).value = 'CLEANMAX — PROJECTS PIPELINE REPORT';
@@ -577,7 +807,7 @@ const Projects = () => {
       titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' };
 
       // Generated-on sub-row
-      ws.mergeCells('A3:H3');
+      ws.mergeCells('A3:N3');
       const subRow = ws.getRow(3);
       subRow.getCell(1).value = `Generated on: ${new Date().toLocaleString('en-IN')}`;
       subRow.getCell(1).font  = { name: 'Arial', size: 9, italic: true, color: { argb: 'FF64748B' } };
@@ -588,7 +818,12 @@ const Projects = () => {
       ws.addRow([]); // spacer
 
       // Header row
-      const hdrRow = ws.addRow(['Project Code', 'Project Name', 'Vendor Code', 'Vendor Name', 'Capacity', 'Status', 'Target Completion', 'Days Left']);
+      const headers = [
+        'Project Code', 'Vendor Code', 'Vendor Name', 'Entity', 'Plant Name',
+        'Capacity', 'Region', 'State', 'City',
+        'Rate (₹)', 'PO No', 'Starting Date', 'Ending Date', 'Status'
+      ];
+      const hdrRow = ws.addRow(headers);
       hdrRow.height = 24;
       hdrRow.eachCell(cell => {
         cell.font = { bold: true, color: { argb: 'FFFFFFFF' }, name: 'Arial', size: 10 };
@@ -603,13 +838,10 @@ const Projects = () => {
       });
 
       // Column widths
-      ws.columns = [16,32,18,28,14,16,20,12].map(w => ({ width: w }));
+      ws.columns = [18, 16, 28, 16, 26, 16, 14, 16, 16, 12, 16, 16, 16, 14].map(w => ({ width: w }));
 
       // Freeze header
       ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 5, showGridLines: true }];
-
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
 
       const tableBorder = {
         top:    { style: 'thin', color: { argb: 'FFCBD5E1' } },
@@ -618,41 +850,43 @@ const Projects = () => {
         right:  { style: 'thin', color: { argb: 'FFCBD5E1' } },
       };
 
-      // Add data rows
-      const allProjects = [...(state.projects || [])];
-      allProjects.sort((a, b) => (b.projectCode || '').localeCompare(a.projectCode || ''));
+      // Add data rows - export ONLY active displayed projects matching registered vendors
+      const exportProjects = [...projects];
+      exportProjects.sort((a, b) => (b.projectCode || '').localeCompare(a.projectCode || ''));
 
-      allProjects.forEach((p, idx) => {
+      exportProjects.forEach((p, idx) => {
         const effStatus = getProjectEffectiveStatus(p);
-        const compDate = p.completionDate ? new Date(p.completionDate) : null;
-        if (compDate) compDate.setHours(0, 0, 0, 0);
-        const daysLeft = compDate ? Math.ceil((compDate - today) / (1000 * 60 * 60 * 24)) : null;
+        const matchedVendor = (state.vendors || []).find(v => 
+          (v.vendorCode && p.vendorCode && String(v.vendorCode).trim().toLowerCase() === String(p.vendorCode).trim().toLowerCase()) ||
+          (v.plantName && p.projectName && String(v.plantName).toLowerCase().trim() === String(p.projectName).toLowerCase().trim()) ||
+          (v.vendorName && p.client && String(v.vendorName).toLowerCase().trim() === String(p.client).toLowerCase().trim())
+        );
 
-        // Determine row highlight
         let rowBg = idx % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF';
         let rowText = 'FF0F172A';
 
         if (effStatus === 'Expired') {
-          rowBg   = 'FFFECDD3'; // Light red — Expired
+          rowBg   = 'FFFECDD3'; // Light red
           rowText = 'FF991B1B';
         } else if (effStatus === 'Expiring Soon') {
-          rowBg   = 'FFFED7AA'; // Light orange — Expiring Soon
+          rowBg   = 'FFFED7AA'; // Light orange
           rowText = 'FF7C2D12';
         }
 
-        const daysText = daysLeft === null ? '—'
-          : daysLeft < 0 ? `${Math.abs(daysLeft)}d overdue`
-          : `${daysLeft}d left`;
-
         const row = ws.addRow([
-          p.projectCode || '',
-          p.projectName || '',
-          getProjectVendorCode(p),
-          p.client || '',
-          `${p.capacity || ''} ${p.unit || ''}`.trim(),
-          effStatus,
-          compDate ? compDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—',
-          daysText,
+          p.projectCode || `PRJ-${String(idx+1).padStart(4, '0')}`,
+          matchedVendor?.vendorCode || p.vendorCode || '—',
+          matchedVendor?.vendorName || p.client || '—',
+          matchedVendor?.cmesEntity || 'CMES',
+          p.projectName || matchedVendor?.plantName || '—',
+          p.capacity ? `${p.capacity} ${p.unit || 'kWp'}` : matchedVendor?.plantCapacity ? `${matchedVendor.plantCapacity} ${matchedVendor.capacityUnit || 'kWp'}` : '—',
+          matchedVendor?.region || p.location || '—',
+          matchedVendor?.state || '—',
+          matchedVendor?.city || '—',
+          Number((Number(matchedVendor?.rate || 0)).toFixed(2)),
+          safeFormatDate(p.startDate || p.completionDate || matchedVendor?.contractStart),
+          safeFormatDate(matchedVendor?.contractEnd || p.contractEnd),
+          effStatus
         ]);
         row.height = 22;
 
@@ -660,48 +894,19 @@ const Projects = () => {
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
           cell.font = { name: 'Arial', size: 9, color: { argb: rowText } };
           cell.border = tableBorder;
-          cell.alignment = { vertical: 'middle', horizontal: [1,3,5,6,7,8].includes(colNo) ? 'center' : 'left' };
+          cell.alignment = { vertical: 'middle', horizontal: [1,2,4,6,7,8,9,10,11,12,13,14].includes(colNo) ? 'center' : 'left' };
         });
 
         // Bold status cell
-        const statusCell = row.getCell(6);
-        const daysCell   = row.getCell(8);
-        if (rowLabel === 'Overdue') {
+        const statusCell = row.getCell(14);
+        if (effStatus === 'Expired') {
           statusCell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFB91C1C' } };
-          daysCell.font   = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFB91C1C' } };
-        } else if (rowLabel === 'Expiring Soon') {
+        } else if (effStatus === 'Expiring Soon') {
           statusCell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFC2410C' } };
-          daysCell.font   = { name: 'Arial', size: 9, bold: true, color: { argb: 'FFC2410C' } };
         } else {
           statusCell.font = { name: 'Arial', size: 9, bold: true, color: { argb: 'FF047857' } };
         }
       });
-
-      // ─── Colour Legend sheet ───
-      const wsLegend = wb.addWorksheet('📌 Legend');
-      wsLegend.mergeCells('A1:C1');
-      const legTitle = wsLegend.getRow(1);
-      legTitle.height = 28;
-      legTitle.getCell(1).value = 'EXPORT COLOUR LEGEND';
-      legTitle.getCell(1).font  = { bold: true, size: 12, color: { argb: 'FFFFFFFF' }, name: 'Arial' };
-      legTitle.getCell(1).fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } };
-      legTitle.getCell(1).alignment = { horizontal: 'center', vertical: 'middle' };
-      wsLegend.addRow([]);
-      [
-        ['FFFED7AA', 'FF7C2D12', '🟠 Expiring Soon',  'Completion date within 90 days'],
-        ['FFFECDD3', 'FF991B1B', '🔴 Overdue',         'Completion date already passed'],
-        ['FFF8FAFC', 'FF0F172A', '⚪ Normal',           'More than 90 days remaining'],
-      ].forEach(([bg, text, label, desc]) => {
-        const r = wsLegend.addRow([label, desc, '']);
-        r.eachCell(cell => {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
-          cell.font = { color: { argb: text }, name: 'Arial', size: 10, bold: true };
-          cell.border = tableBorder;
-          cell.alignment = { vertical: 'middle' };
-        });
-        r.height = 22;
-      });
-      wsLegend.columns = [{ width: 24 }, { width: 38 }, { width: 4 }];
 
       const buf  = await wb.xlsx.writeBuffer();
       const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -709,11 +914,13 @@ const Projects = () => {
       const a    = document.createElement('a');
       a.href     = url;
       a.download = `CleanMax_Projects_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
       showToast('✅ Projects exported successfully!', 'success');
     } catch (err) {
-      console.error(err);
+      console.error('Projects export error:', err);
       showToast('❌ Export failed. Please try again.', 'error');
     } finally {
       setIsExporting(false);
@@ -731,17 +938,17 @@ const Projects = () => {
           <p className="text-secondary" style={{ marginTop: '0.25rem' }}>Click any project to view its full portfolio details.</p>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-          {/* Export button — hidden from viewers */}
+          {/* Export button — premium green style */}
           {state.currentUser?.role !== 'viewer' && (
             <button
               onClick={handleExportProjects}
               disabled={isExporting}
-              className="btn-ghost"
-              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.65rem 1.25rem', whiteSpace: 'nowrap', border: '1px solid var(--border-color)', opacity: isExporting ? 0.7 : 1 }}
+              className="btn-premium"
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', whiteSpace: 'nowrap', opacity: isExporting ? 0.7 : 1 }}
             >
               {isExporting
-                ? <React.Fragment><span style={{ display:'inline-block',width:14,height:14,border:'2px solid rgba(255,255,255,0.4)',borderTopColor:'currentColor',borderRadius:'50%',animation:'spin 0.7s linear infinite'}}/> Exporting...</React.Fragment>
-                : <React.Fragment><Download size={16} /> Export Excel</React.Fragment>
+                ? <React.Fragment><span style={{ display:'inline-block',width:14,height:14,border:'2px solid rgba(255,255,255,0.4)',borderTopColor:'#fff',borderRadius:'50%',animation:'spin 0.7s linear infinite'}}/> Exporting...</React.Fragment>
+                : <React.Fragment><Download size={18} /> Export Excel</React.Fragment>
               }
             </button>
           )}
@@ -980,6 +1187,7 @@ const Projects = () => {
           <ProjectRegistrationForm
             initialData={{ ...editingProject, completionDate: new Date(editingProject.completionDate || Date.now()).toISOString().split('T')[0] }}
             isEditing={true}
+            initialRenewState={Boolean(editingProject._forceRenewState)}
             onClose={() => setEditingProject(null)}
           />
         </>
@@ -988,8 +1196,8 @@ const Projects = () => {
       {selectedProject && (
         <ProjectPortfolioModal
           project={selectedProject}
-          onClose={() => setSelectedProject(null)}
-          onEdit={state.currentUser?.role !== 'viewer' ? (p) => { setEditingProject(p); } : null}
+          onClose={handleCloseProjectModal}
+          onEdit={state.currentUser?.role !== 'viewer' ? (p, forceRenew = false) => { setEditingProject(forceRenew ? { ...p, _forceRenewState: true } : p); } : null}
         />
       )}
     </div>

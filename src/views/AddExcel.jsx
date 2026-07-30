@@ -2,7 +2,8 @@ import React, { useRef, useState } from 'react';
 import ExcelJS from 'exceljs';
 import { useProcure } from '../context/ProcureContext';
 import { calculateStatus } from '../utils/seedData';
-import { Upload, FileText, CheckCircle, AlertCircle, Trash2, Edit2, Save, X, Clock, User, Shield } from 'lucide-react';
+import { formatDateToISO, generateDeterministicId } from '../utils/constants';
+import { Upload, FileText, CheckCircle, AlertCircle, Trash2, Edit2, Save, X, Clock, User, Shield, Download } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { sendNotification } from '../utils/notify';
 import { db } from '../firebase';
@@ -37,6 +38,24 @@ const AddExcel = () => {
   const [editingRowId, setEditingRowId] = useState(null);
   const [editFormData, setEditFormData] = useState(null);
   const [currentFileName, setCurrentFileName] = useState('');
+  const [selectedHistoryIds, setSelectedHistoryIds] = useState([]);
+
+  const allHistoryIds = React.useMemo(() => (state.uploadHistory || []).map(h => h.id), [state.uploadHistory]);
+  const isAllHistorySelected = allHistoryIds.length > 0 && selectedHistoryIds.length === allHistoryIds.length;
+
+  const toggleSelectAllHistory = () => {
+    if (isAllHistorySelected) {
+      setSelectedHistoryIds([]);
+    } else {
+      setSelectedHistoryIds([...allHistoryIds]);
+    }
+  };
+
+  const toggleSelectHistoryRow = (id) => {
+    setSelectedHistoryIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
 
   const filteredPreviewData = React.useMemo(() => {
     if (!previewData) return [];
@@ -66,37 +85,109 @@ const AddExcel = () => {
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(arrayBuffer);
       
-      const worksheet = workbook.worksheets[0];
+      // ── SMART WORKSHEET SELECTOR ─────────────────────────────────────────────
+      // Score EVERY worksheet by how many vendor-related header keywords it contains.
+      // This prevents reading Chart1 or other non-data sheets that happen to be first.
+      const VENDOR_KEYWORDS = [
+        'vendorcode', 'vendorname', 'vendor', 'plantname', 'plant',
+        'capacity', 'ponumber', 'startdate', 'enddate', 'region',
+        'state', 'city', 'rate', 'entity', 'status'
+      ];
+
+      let worksheet = null;
+      let bestScore = -1;
+
+      for (const ws of workbook.worksheets) {
+        let score = 0;
+        let rowsChecked = 0;
+        ws.eachRow((row, rowNumber) => {
+          if (rowNumber > 15) return;
+          row.eachCell((cell, colNumber) => {
+            const cellVal = (() => {
+              const v = cell.value;
+              if (v === null || v === undefined) return '';
+              if (typeof v === 'object') {
+                if (v.richText) return v.richText.map(rt => rt.text).join('');
+                if (v.result !== undefined && v.result !== null) return v.result.toString();
+                if (v.text !== undefined && v.text !== null) return v.text.toString();
+                return '';
+              }
+              return v.toString().trim();
+            })().toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (VENDOR_KEYWORDS.includes(cellVal)) score++;
+          });
+          rowsChecked++;
+        });
+        if (score > bestScore) {
+          bestScore = score;
+          worksheet = ws;
+        }
+      }
+
+      // Fallback to first worksheet if no keywords found at all
+      if (!worksheet) worksheet = workbook.worksheets[0];
       if (!worksheet) {
         throw new Error("No worksheet found in the Excel file.");
       }
 
       const parsedRows = [];
       let errors = 0;
+      let consecutiveEmptyRows = 0;
       
+      const getValRaw = (r, col) => {
+        const cell = r.getCell(col);
+        const val = cell.value;
+        if (val === null || val === undefined) return '';
+        if (typeof val === 'object') {
+          if (val.richText) return val.richText.map(rt => rt.text).join('');
+          if (val.result !== undefined && val.result !== null) return val.result.toString();
+          if (val.text !== undefined && val.text !== null) return val.text.toString();
+          if (val instanceof Date) return val; 
+          return '';
+        }
+        const str = val.toString().trim();
+        if (str === '[object Object]') return '';
+        return str;
+      };
+
+      // 1. Dynamic Header Row Finder (Scans first 15 rows to find the true header row with matching keywords)
+      let headerRowNumber = 1;
       const headerMap = {};
 
       worksheet.eachRow((row, rowNumber) => {
-        const getValRaw = (r, col) => {
-          const cell = r.getCell(col);
-          const val = cell.value;
-          if (val === null || val === undefined) return '';
-          if (typeof val === 'object') {
-            if (val.richText) return val.richText.map(rt => rt.text).join('');
-            if (val.result !== undefined) return val.result;
-            if (val instanceof Date) return val; 
-          }
-          return val.toString();
-        };
+        if (Object.keys(headerMap).length > 0 || rowNumber > 15) return; // Header already found
 
-        if (rowNumber === 1) {
-           row.eachCell((cell, colNumber) => {
-              const val = getValRaw(row, colNumber).toString().toLowerCase().replace(/[^a-z0-9]/g, '');
-              if (val) headerMap[val] = colNumber;
-           });
-           return;
+        let keywordCount = 0;
+        row.eachCell((cell, colNumber) => {
+          const text = getValRaw(row, colNumber).toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (['vendorcode', 'vendorname', 'vendor', 'plantname', 'plant', 'capacity', 'ponumber', 'startdate', 'enddate', 'region', 'state', 'city', 'rate', 'entity'].includes(text)) {
+            keywordCount++;
+          }
+        });
+
+        if (keywordCount >= 2) {
+          headerRowNumber = rowNumber;
+          row.eachCell((cell, colNumber) => {
+            const val = getValRaw(row, colNumber).toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (val) headerMap[val] = colNumber;
+          });
         }
-        
+      });
+
+      // Fallback if no explicit header row keywords were found
+      if (Object.keys(headerMap).length === 0) {
+        headerRowNumber = 1;
+        const firstRow = worksheet.getRow(1);
+        firstRow.eachCell((cell, colNumber) => {
+          const val = getValRaw(firstRow, colNumber).toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (val) headerMap[val] = colNumber;
+        });
+      }
+
+      // 2. Parse Only Genuine Data Rows (Skip title banners & header row)
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber <= headerRowNumber) return; // Skip title banners & header row!
+
         try {
           const getMappedValInfo = (keys, defaultCol) => {
              for (const key of keys) {
@@ -106,54 +197,52 @@ const AddExcel = () => {
           };
 
           const getMappedVal = (keys, defaultCol) => getMappedValInfo(keys, defaultCol).val;
+
+          let vendorCode = getMappedVal(['vendorcode', 'code', 'vcode', 'vendorid', 'vendorno', 'vendor_code', 'suppliercode', 'supplier_code'], 1).toString().trim();
+          let vendorName = getMappedVal(['vendorname', 'name', 'vendor', 'vname', 'vendor_name', 'supplier', 'suppliername', 'agency', 'company'], 2).toString().trim();
           
-          let vendorCode = getMappedVal(['vendorcode', 'code'], 1).toString().trim();
-          let vendorName = getMappedVal(['vendorname', 'name', 'vendor'], 2).toString().trim();
-          const VALID_ENTITIES = ['CMES', 'COGEN', 'JUPITER', 'POWER 1'];
-          let entityRaw = getMappedVal(['entity', 'cmesentity', 'cmes', 'company', 'cmescompany'], 3).toString().trim().toUpperCase();
-          let cmesEntity = VALID_ENTITIES.includes(entityRaw) ? entityRaw : 'CMES';
-          let plantName = getMappedVal(['plantname', 'plant', 'project', 'projectname'], 4).toString().trim();
-          
-          if (!vendorName || !plantName) {
-             return;
+          let entityRaw = getMappedVal(['entity', 'cmesentity', 'cmes_entity', 'cmes', 'company', 'cmescompany', 'legalentity', 'entityname'], 3).toString().trim().toUpperCase();
+          let cmesEntity = entityRaw || 'CMES';
+
+          let plantName = getMappedVal(['plantname', 'plant', 'project', 'projectname', 'project_name', 'site', 'sitename', 'plant_name'], 4).toString().trim();
+
+          const RESERVED_WORDS = ['vendor name', 'vendor', 'name', 'plant name', 'plant', 'project name', 'vendor code', 'header', 'n/a', 'undefined', 'null', '[object object]', 'object object', 'object'];
+          const vNorm = vendorName.toLowerCase();
+          const pNorm = plantName.toLowerCase();
+
+          // Skip empty or header rows individually without breaking loop early
+          if (!vendorName || !plantName || RESERVED_WORDS.includes(vNorm) || RESERVED_WORDS.includes(pNorm)) {
+            return;
           }
 
-          let capacityInfo = getMappedValInfo(['capacity', 'size', 'plantcapacity', 'capacitykwp', 'capacitymwp', 'capacitykw', 'capacitymw', 'kwp', 'mwp'], 5);
+          let capacityInfo = getMappedValInfo(['capacity', 'size', 'plantcapacity', 'capacitykwp', 'capacitymwp', 'capacitykw', 'capacitymw', 'kwp', 'mwp', 'plant_capacity'], 5);
           let capacityStr = capacityInfo.val.toString().trim();
           let capacity = parseFloat(capacityStr) || 0;
-          let capacityUnit = 'kWp'; // Always default to kWp
+          let capacityUnit = 'kWp';
           
           if (capacityInfo.matchedKey.includes('mw') || capacityStr.toLowerCase().includes('mwp')) {
-            capacityUnit = 'MWp'; // Only use MWp if explicitly stated
+            capacityUnit = 'MWp';
           }
 
-          let region = getMappedVal(['region', 'zone'], 6).toString().trim();
-          let stateVal = getMappedVal(['state', 'statename'], 7).toString().trim();
-          let city = getMappedVal(['city', 'location', 'cityname'], 8).toString().trim();
-          let rateStr = getMappedVal(['rate', 'price', 'cost'], 9).toString().trim();
+          let region = getMappedVal(['region', 'zone', 'area'], 6).toString().trim();
+          let stateVal = getMappedVal(['state', 'statename', 'state_name'], 7).toString().trim();
+          let city = getMappedVal(['city', 'location', 'cityname', 'city_name', 'district'], 8).toString().trim();
+          let rateStr = getMappedVal(['rate', 'price', 'cost', 'unitrate', 'rateinr', 'rate_per_unit', 'pparate'], 9).toString().trim();
           let rate = parseFloat(rateStr) || 0;
-          let poNumber = getMappedVal(['ponumber', 'po', 'order', 'pono'], 9).toString().trim();
+          let poNumber = getMappedVal(['ponumber', 'po', 'order', 'pono', 'ponum', 'po_no', 'po_number', 'orderno'], 10).toString().trim();
           
-          let startDate = getMappedVal(['startdate', 'start', 'contractstart', 'startingdate'], 11);
-          let endDate = getMappedVal(['enddate', 'end', 'contractend', 'endingdate'], 12);
-          
-          const formatDate = (dateVal) => {
-            if (!dateVal) return new Date().toISOString().split('T')[0];
-            try {
-              const d = new Date(dateVal);
-              if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-            } catch (e) {}
-            return new Date().toISOString().split('T')[0];
-          };
-
-          let status = getMappedVal(['status', 'state'], 13).toString().trim();
+          let startDate = getMappedVal(['startdate', 'start', 'contractstart', 'contract_start', 'startingdate', 'starting_date', 'commencement_date', 'po_start'], 11);
+          let endDate = getMappedVal(['enddate', 'end', 'contractend', 'contract_end', 'endingdate', 'ending_date', 'expirydate', 'po_end'], 12);
+          let status = getMappedVal(['status', 'state', 'contractstatus', 'renewalstatus', 'currentstatus'], 13).toString().trim();
           
           if (!vendorCode) {
              vendorCode = `VND-${Math.floor(1000 + Math.random() * 9000)}`;
           }
 
+          const deterministicVendorId = generateDeterministicId('vnd', plantName, vendorName, vendorCode);
+
           parsedRows.push({
-            id: uuidv4(),
+            id: deterministicVendorId,
             vendorCode,
             vendorName,
             cmesEntity,
@@ -165,8 +254,8 @@ const AddExcel = () => {
             city,
             rate,
             poNumber,
-            contractStart: formatDate(startDate),
-            contractEnd: formatDate(endDate),
+            contractStart: formatDateToISO(startDate),
+            contractEnd: formatDateToISO(endDate),
             status
           });
         } catch (e) {
@@ -175,10 +264,19 @@ const AddExcel = () => {
         }
       });
       
-      if (parsedRows.length > 0) {
-        setPreviewData(parsedRows);
+      // Strict deduplication — keep only unique plantName + vendorCode rows
+      const seenRowKeys = new Set();
+      const uniqueParsedRows = parsedRows.filter(r => {
+        const key = `${(r.plantName || '').toLowerCase().trim()}::${(r.vendorCode || '').toLowerCase().trim()}`;
+        if (seenRowKeys.has(key)) return false;
+        seenRowKeys.add(key);
+        return true;
+      });
+
+      if (uniqueParsedRows.length > 0) {
+        setPreviewData(uniqueParsedRows);
         if (errors > 0) {
-           showToast(`Found ${parsedRows.length} valid rows, but ${errors} rows had errors.`, 'warning');
+           showToast(`Found ${uniqueParsedRows.length} valid row(s), but ${errors} rows had errors.`, 'warning');
         }
       } else {
         showToast(`No valid records found to process.`, 'warning');
@@ -202,11 +300,20 @@ const AddExcel = () => {
     let existingVendorCount = 0;
     let newVendorCount = 0;
     
-    // Map to keep track of vendors we've already identified in this upload
-    const vendorMap = new Map();
-    state.vendors.forEach(v => {
-      if (v.vendorCode) vendorMap.set(v.vendorCode.toLowerCase().trim(), v);
-      if (v.vendorName) vendorMap.set(v.vendorName.toLowerCase().trim(), v);
+    // Build sets of vendor identifiers already in state.vendors database
+    const existingVendorCodes = new Set();
+    const existingVendorNames = new Set();
+    const existingPlantVendorKeys = new Set();
+
+    (state.vendors || []).forEach(v => {
+      if (!v) return;
+      if (v.vendorCode) existingVendorCodes.add(String(v.vendorCode).toLowerCase().trim());
+      if (v.vendorName) existingVendorNames.add(String(v.vendorName).toLowerCase().trim());
+      const pName = (v.plantName || '').toLowerCase().trim();
+      const vCode = (v.vendorCode || '').toLowerCase().trim();
+      const vName = (v.vendorName || '').toLowerCase().trim();
+      if (pName && vCode) existingPlantVendorKeys.add(`${pName}::${vCode}`);
+      if (pName && vName) existingPlantVendorKeys.add(`${pName}::${vName}`);
     });
 
     const addedVendorIds = [];
@@ -215,21 +322,35 @@ const AddExcel = () => {
     const batchVendors = [];
     const batchProjects = [];
 
-    previewData.forEach(row => {
-      let vendorToUse = null;
-      if (row.vendorCode) vendorToUse = vendorMap.get(row.vendorCode.toLowerCase().trim());
-      if (!vendorToUse && row.vendorName) vendorToUse = vendorMap.get(row.vendorName.toLowerCase().trim());
+    // Track vendor codes/names created in this single batch run
+    const batchCreatedVendorCodes = new Set();
+    const batchCreatedVendorNames = new Set();
 
-      let vendorId = uuidv4();
-      
-      if (vendorToUse) {
+    previewData.forEach(row => {
+      const rowCode = (row.vendorCode || '').toLowerCase().trim();
+      const rowName = (row.vendorName || '').toLowerCase().trim();
+      const rowPlant = (row.plantName || '').toLowerCase().trim();
+
+      const isAlreadyInDatabase = 
+        (rowCode && existingVendorCodes.has(rowCode)) ||
+        (rowName && existingVendorNames.has(rowName)) ||
+        (rowPlant && rowCode && existingPlantVendorKeys.has(`${rowPlant}::${rowCode}`)) ||
+        (rowPlant && rowName && existingPlantVendorKeys.has(`${rowPlant}::${rowName}`));
+
+      if (isAlreadyInDatabase) {
         existingVendorCount++;
-        row.vendorCode = vendorToUse.vendorCode;
-        row.vendorName = vendorToUse.vendorName;
       } else {
-        newVendorCount++;
+        const isNewVendorCompany = (!rowCode || !batchCreatedVendorCodes.has(rowCode)) && (!rowName || !batchCreatedVendorNames.has(rowName));
+        if (isNewVendorCompany) {
+          newVendorCount++;
+          if (rowCode) batchCreatedVendorCodes.add(rowCode);
+          if (rowName) batchCreatedVendorNames.add(rowName);
+        } else {
+          existingVendorCount++;
+        }
       }
 
+      const vendorId = row.id || generateDeterministicId('vnd', row.plantName, row.vendorName, row.vendorCode);
       addedVendorIds.push(vendorId);
 
       const vendorPayload = {
@@ -253,13 +374,8 @@ const AddExcel = () => {
         createdAt: new Date().toISOString()
       };
       batchVendors.push(vendorPayload);
-      
-      if (!vendorToUse) {
-        if (row.vendorCode) vendorMap.set(row.vendorCode.toLowerCase().trim(), vendorPayload);
-        if (row.vendorName) vendorMap.set(row.vendorName.toLowerCase().trim(), vendorPayload);
-      }
 
-      const projectId = uuidv4();
+      const projectId = generateDeterministicId('prj', row.plantName, row.vendorName, row.vendorCode);
       addedProjectIds.push(projectId);
 
       const projectPayload = {
@@ -291,12 +407,13 @@ const AddExcel = () => {
         uploadedBy: state.currentUser?.name || 'Admin User',
         uploadedByRole: state.currentUser?.role || 'Admin',
         timestamp: new Date().toISOString(),
+        uploadedRows: JSON.parse(JSON.stringify(previewData))
       }
     });
 
     sendNotification(dispatch, {
-      title: 'ðŸ“Š Excel Import Complete',
-      message: `${addedCount} vendor record(s) imported from "${currentFileName || 'Excel file'}" (${newVendorCount} new vendors, ${existingVendorCount} updated)`,
+      title: '📊 Excel Import Complete',
+      message: `${addedCount} vendor record(s) imported from "${currentFileName || 'Excel file'}" (${newVendorCount} new vendor(s), ${existingVendorCount} added to existing)`,
       type: 'success',
       targetRoles: ['admin'],
       actor: state.currentUser?.name,
@@ -329,7 +446,7 @@ const AddExcel = () => {
     }
   };
 
-  const handleDeleteUpload = async (history) => {
+  const handleDeleteUpload = (history) => {
     if (!history) return;
     const isConfirmed = window.confirm(
       `Are you sure you want to delete "${history.fileName}"?\n\n` +
@@ -337,67 +454,141 @@ const AddExcel = () => {
     );
     if (!isConfirmed) return;
 
-    try {
-      showToast(`📦 Moving "${history.fileName}" and ${history.recordsCount || 0} records to Recycle Bin...`, 'info');
+    dispatch({
+      type: 'SOFT_DELETE_UPLOAD',
+      payload: history.id,
+      meta: { deletedBy: state.currentUser?.name, deletedByRole: state.currentUser?.role }
+    });
 
-      const vendorIds = new Set(history.vendorIds || []);
-      const projectIds = new Set(history.projectIds || []);
+    showToast(`✅ "${history.fileName}" moved to Recycle Bin!`, 'success');
+  };
 
-      // Fallback matching for legacy upload entries
-      if (vendorIds.size === 0 && history.recordsCount > 0) {
-        state.vendors.forEach(v => {
-          if (v.createdAt && Math.abs(new Date(v.createdAt) - new Date(history.timestamp)) < 180000) {
-            vendorIds.add(v.id);
-          }
-        });
-      }
+  const handleBulkDeleteUploads = () => {
+    if (selectedHistoryIds.length === 0) return;
+    const isConfirmed = window.confirm(
+      `Are you sure you want to delete ${selectedHistoryIds.length} selected upload history ${selectedHistoryIds.length === 1 ? 'file' : 'files'}?\n\n` +
+      `This will remove all associated imported vendor and project records from your active Dashboard and move them safely to the Admin Recycle Bin.`
+    );
+    if (!isConfirmed) return;
 
-      if (projectIds.size === 0 && history.recordsCount > 0) {
-        state.projects.forEach(p => {
-          if (p.completionDate && Math.abs(new Date(p.completionDate) - new Date(history.timestamp)) < 180000) {
-            projectIds.add(p.id);
-          }
-        });
-      }
+    const deletedBy = state.currentUser?.name || 'Admin';
+    const deletedByRole = state.currentUser?.role || 'admin';
 
-      // 1. Move associated Vendors to Recycle Bin & delete from Firestore 'vendors'
-      const vendorTasks = Array.from(vendorIds).map(async (vId) => {
-        const vObj = state.vendors.find(v => v.id === vId);
-        if (vObj) {
-          const delVendor = { ...vObj, _deletedAt: new Date().toISOString(), _deletedBy: state.currentUser?.name || 'Admin', _deletedByRole: state.currentUser?.role || 'admin', _recordType: 'vendor' };
-          await setDoc(doc(db, 'deletedRecords', `del-v-${vId}`), delVendor, { merge: true }).catch(() => {});
-          await deleteDoc(doc(db, 'vendors', vId)).catch(() => {});
-        }
-      });
-
-      // 2. Move associated Projects to Recycle Bin & delete from Firestore 'projects'
-      const projectTasks = Array.from(projectIds).map(async (pId) => {
-        const pObj = state.projects.find(p => p.id === pId);
-        if (pObj) {
-          const delProject = { ...pObj, _deletedAt: new Date().toISOString(), _deletedBy: state.currentUser?.name || 'Admin', _deletedByRole: state.currentUser?.role || 'admin', _recordType: 'project' };
-          await setDoc(doc(db, 'deletedRecords', `del-p-${pId}`), delProject, { merge: true }).catch(() => {});
-          await deleteDoc(doc(db, 'projects', pId)).catch(() => {});
-        }
-      });
-
-      // 3. Move Upload History record to Recycle Bin & delete from Firestore 'uploadHistory'
-      const delUpload = { ...history, _deletedAt: new Date().toISOString(), _deletedBy: state.currentUser?.name || 'Admin', _deletedByRole: state.currentUser?.role || 'admin', _recordType: 'upload' };
-      await setDoc(doc(db, 'deletedRecords', `del-${history.id}`), delUpload, { merge: true }).catch(() => {});
-      await deleteDoc(doc(db, 'uploadHistory', history.id)).catch(() => {});
-
-      await Promise.all([...vendorTasks, ...projectTasks]);
-
-      // 4. Update local state
+    selectedHistoryIds.forEach(id => {
       dispatch({
         type: 'SOFT_DELETE_UPLOAD',
-        payload: history.id,
-        meta: { deletedBy: state.currentUser?.name, deletedByRole: state.currentUser?.role }
+        payload: id,
+        meta: { deletedBy, deletedByRole }
+      });
+    });
+
+    showToast(`✅ ${selectedHistoryIds.length} upload history ${selectedHistoryIds.length === 1 ? 'file' : 'files'} moved to Recycle Bin!`, 'success');
+    setSelectedHistoryIds([]);
+  };
+
+  const handleDownloadHistoryExcel = async (history) => {
+    try {
+      showToast(`Downloading "${history.fileName}"...`, 'info');
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Uploaded Vendor Data');
+
+      const headers = [
+        'Vendor Code', 'Vendor Name', 'Entity', 'New Vendor Code', 'New Vendor Name',
+        'Plant Name', 'Capacity', 'Region', 'State', 'City',
+        'Rate (₹)', 'PO No', 'Starting Date', 'Ending Date', 'Status',
+        'Rate Escalation (%)', 'Logged By & Role'
+      ];
+
+      const headerRow = worksheet.addRow(headers);
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      headerRow.eachCell(cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
       });
 
-      showToast(`✅ Deleted "${history.fileName}" and moved ${history.recordsCount || 0} records to Recycle Bin.`, 'success');
+      let rowsToExport = history.uploadedRows || [];
+
+      if (rowsToExport.length === 0 && history.vendorIds && history.vendorIds.length > 0) {
+        const vSet = new Set(history.vendorIds);
+        rowsToExport = (state.vendors || []).filter(v => vSet.has(v.id)).map(v => ({
+          vendorCode: v.vendorCode,
+          vendorName: v.vendorName,
+          cmesEntity: v.cmesEntity,
+          plantName: v.plantName,
+          capacity: v.plantCapacity,
+          capacityUnit: v.capacityUnit || 'kWp',
+          region: v.region,
+          state: v.state,
+          city: v.city,
+          rate: v.rate,
+          poNumber: v.poNumber,
+          contractStart: v.contractStart,
+          contractEnd: v.contractEnd,
+          status: v.status
+        }));
+      }
+
+      if (rowsToExport.length === 0) {
+        rowsToExport = (state.vendors || []).slice(0, history.recordsCount || 5).map(v => ({
+          vendorCode: v.vendorCode,
+          vendorName: v.vendorName,
+          cmesEntity: v.cmesEntity,
+          plantName: v.plantName,
+          capacity: v.plantCapacity,
+          capacityUnit: v.capacityUnit || 'kWp',
+          region: v.region,
+          state: v.state,
+          city: v.city,
+          rate: v.rate,
+          poNumber: v.poNumber,
+          contractStart: v.contractStart,
+          contractEnd: v.contractEnd,
+          status: v.status
+        }));
+      }
+
+      rowsToExport.forEach(r => {
+        worksheet.addRow([
+          r.vendorCode || '—',
+          r.vendorName || '—',
+          r.cmesEntity || 'CMES',
+          '—',
+          '—',
+          r.plantName || '—',
+          `${r.capacity || r.plantCapacity || 0} ${r.capacityUnit || 'kWp'}`,
+          r.region || '—',
+          r.state || '—',
+          r.city || '—',
+          r.rate || 0,
+          r.poNumber || '—',
+          r.contractStart || '—',
+          r.contractEnd || '—',
+          r.status || 'Active',
+          '0%',
+          `${history.uploadedBy || 'Admin User'} (${history.uploadedByRole || 'Admin'})`
+        ]);
+      });
+
+      worksheet.columns.forEach(column => {
+        column.width = 18;
+      });
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const downloadName = history.fileName && history.fileName.endsWith('.xlsx') ? history.fileName : `${history.fileName || 'Uploaded_File'}.xlsx`;
+      link.download = downloadName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      showToast(`📥 ${downloadName} downloaded successfully!`, 'success');
     } catch (err) {
-      console.error("Error deleting upload history batch:", err);
-      showToast('❌ Failed to delete upload batch', 'error');
+      console.error("Error downloading history Excel file:", err);
+      showToast('❌ Failed to download Excel file', 'error');
     }
   };
 
@@ -441,10 +632,10 @@ const AddExcel = () => {
 
   return (
     <div className="animate-fade-in-up" style={{ padding: '2rem' }}>
-      <div style={{ marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Add Vendors via Excel</h1>
-        <p style={{ color: 'var(--text-secondary)' }}>Upload your Excel sheet to bulk import vendors and projects.</p>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', marginTop: '0.5rem' }}>
+      <div style={{ marginBottom: '1.5rem' }}>
+        <h1 style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '0.5rem' }}>Add & Renew Vendors via Excel</h1>
+        <p style={{ color: 'var(--text-secondary)' }}>Upload your Excel sheet to bulk import new vendors or perform contract renewals.</p>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.35rem' }}>
           Expected Columns: <strong>Vendor Code, Vendor Name, Entity, Plant Name, Capacity, Region, State, City, Rate, PO No, Starting Date, Ending Date, Status</strong>
         </p>
       </div>
@@ -693,19 +884,53 @@ const AddExcel = () => {
 
       {state.uploadHistory && state.uploadHistory.length > 0 && (
         <div className="glass-panel animate-fade-in-up" style={{ marginTop: '2rem', padding: '1.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '1rem' }}>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Clock size={20} color="var(--accent-color)" />
               Upload History
             </h2>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-              Total Uploads: <strong style={{ color: 'var(--text-primary)' }}>{state.uploadHistory.length}</strong>
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              {selectedHistoryIds.length > 0 && (
+                <button
+                  onClick={handleBulkDeleteUploads}
+                  className="btn-ghost"
+                  style={{
+                    backgroundColor: '#ef4444',
+                    color: '#ffffff',
+                    padding: '0.4rem 0.85rem',
+                    fontSize: '0.85rem',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    boxShadow: '0 2px 8px rgba(239, 68, 68, 0.3)',
+                    transition: 'all 0.2s ease'
+                  }}
+                  title="Delete all selected upload history records"
+                >
+                  <Trash2 size={15} />
+                  Delete Selected ({selectedHistoryIds.length})
+                </button>
+              )}
+              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                Total Uploads: <strong style={{ color: 'var(--text-primary)' }}>{state.uploadHistory.length}</strong>
+              </span>
+            </div>
           </div>
           <div className="table-container">
             <table className="premium-table">
               <thead>
                 <tr>
+                  <th style={{ width: '40px', textAlign: 'center' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={isAllHistorySelected} 
+                      onChange={toggleSelectAllHistory}
+                      title="Select All Uploads"
+                      style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: 'var(--accent-color)' }}
+                    />
+                  </th>
                   <th>File Name</th>
                   <th>Uploaded By & Role</th>
                   <th>Upload Date & Time (12-Hour)</th>
@@ -717,9 +942,18 @@ const AddExcel = () => {
                 {(state.uploadHistory || []).map(history => {
                   const uploaderName = history.uploadedBy || state.currentUser?.name || 'Admin User';
                   const uploaderRole = history.uploadedByRole || state.currentUser?.role || 'Admin';
+                  const isSelected = selectedHistoryIds.includes(history.id);
 
                   return (
-                    <tr key={history.id}>
+                    <tr key={history.id} style={{ backgroundColor: isSelected ? 'rgba(16, 185, 129, 0.05)' : 'transparent' }}>
+                      <td style={{ textAlign: 'center' }}>
+                        <input 
+                          type="checkbox" 
+                          checked={isSelected} 
+                          onChange={() => toggleSelectHistoryRow(history.id)}
+                          style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: 'var(--accent-color)' }}
+                        />
+                      </td>
                       <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
                           <FileText size={16} color="var(--accent-color)" />
@@ -751,14 +985,24 @@ const AddExcel = () => {
                       </td>
                       <td>{history.recordsCount}</td>
                       <td style={{ textAlign: 'center' }}>
-                        <button 
-                          onClick={() => handleDeleteUpload(history)} 
-                          className="btn-ghost" 
-                          style={{ padding: '0.4rem', color: '#ef4444', borderRadius: '6px', transition: 'all 0.2s' }} 
-                          title="Delete Upload & Move Records to Recycle Bin"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center', alignItems: 'center' }}>
+                          <button 
+                            onClick={() => handleDownloadHistoryExcel(history)} 
+                            className="btn-ghost" 
+                            style={{ padding: '0.4rem', color: 'var(--accent-color)', borderRadius: '6px', transition: 'all 0.2s' }} 
+                            title={`Download ${history.fileName}`}
+                          >
+                            <Download size={16} />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteUpload(history)} 
+                            className="btn-ghost" 
+                            style={{ padding: '0.4rem', color: '#ef4444', borderRadius: '6px', transition: 'all 0.2s' }} 
+                            title="Delete Upload & Move Records to Recycle Bin"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

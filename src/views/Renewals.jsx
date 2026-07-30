@@ -1,15 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useDeferredValue } from 'react';
 import ExcelJS from 'exceljs';
 import { useProcure } from '../context/ProcureContext';
-import { getStatusClass, getCapacityInMW, REGION_COLORS } from '../utils/constants';
+import { getStatusClass, getCapacityInMW, REGION_COLORS, formatDateForDisplay, formatDateToISO, parseFlexibleDate } from '../utils/constants';
 import { History, RefreshCw, AlertTriangle, CheckCircle2, TrendingUp, Search, Calendar, FileText, User, ArrowRight, PlusCircle, Edit3, X, Download } from 'lucide-react';
 import { sendNotification } from '../utils/notify';
 import { v4 as uuidv4 } from 'uuid';
 
 const format12HourDateTime = (timestamp) => {
   if (!timestamp) return 'N/A';
-  const d = new Date(timestamp);
-  if (isNaN(d.getTime())) return 'N/A';
+  const d = parseFlexibleDate(timestamp);
+  if (!d) return 'N/A';
   return d.toLocaleString('en-US', {
     day: '2-digit',
     month: 'short',
@@ -22,9 +22,7 @@ const format12HourDateTime = (timestamp) => {
 
 const formatDateOnly = (dateStr) => {
   if (!dateStr) return 'N/A';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return 'N/A';
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return formatDateForDisplay(dateStr);
 };
 
 const Renewals = () => {
@@ -36,6 +34,8 @@ const Renewals = () => {
   
   // Quick renew modal form state
   const [renewForm, setRenewForm] = useState({
+    vendorCode: '',
+    vendorName: '',
     poNumber: '',
     rate: '',
     contractStart: '',
@@ -68,10 +68,10 @@ const Renewals = () => {
 
       // Header Row (Row 3)
       const headers = [
-        'Vendor Code', 'Vendor Name', 'Plant Name', 'Region', 'State', 'City',
-        'Capacity', 'Record Type', 'Renewal Status', 'Pre-Edit PO', 'Active/New PO',
-        'Pre-Edit Rate (₹)', 'Active Rate (₹)', 'Rate Escalation (%)',
-        'Contract Start', 'Contract End', 'Logged By & Role'
+        'Vendor Code', 'Vendor Name', 'Entity', 'New Vendor Code', 'New Vendor Name',
+        'Plant Name', 'Capacity', 'Region', 'State', 'City',
+        'Rate (₹)', 'PO No', 'Starting Date', 'Ending Date', 'Status',
+        'Rate Escalation (%)', 'Logged By & Role'
       ];
       
       const headerRow = worksheet.getRow(3);
@@ -85,7 +85,7 @@ const Renewals = () => {
       };
       headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
 
-      const colWidths = [14, 26, 26, 12, 14, 16, 16, 20, 26, 16, 16, 18, 18, 18, 15, 15, 24];
+      const colWidths = [14, 26, 12, 16, 26, 26, 16, 12, 14, 16, 14, 16, 15, 15, 22, 18, 24];
       colWidths.forEach((w, idx) => {
         const col = worksheet.getColumn(idx + 1);
         col.width = w;
@@ -101,32 +101,32 @@ const Renewals = () => {
         right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
       };
 
-      // 1. Add Pre-Edit Historical Snapshots
+      // 1. Add Pre-Edit Historical Snapshots (Renewed / Replaced Vendors)
       archivedList.forEach(arch => {
         const rateDiff = Number(arch.newRate || 0) - Number(arch.oldRate || 0);
         const ratePct = arch.oldRate ? ((rateDiff / arch.oldRate) * 100).toFixed(1) + '%' : '0%';
-        const vendorDisplay = arch.newVendorName && arch.newVendorName !== arch.oldVendorName
-          ? `${arch.oldVendorName || arch.vendorName} → ${arch.newVendorName}`
-          : (arch.oldVendorName || arch.vendorName || '—');
+        const isVendorChanged = arch.newVendorName && arch.newVendorName !== arch.oldVendorName;
+        const newVCode = isVendorChanged ? (arch.newVendorCode || 'NEW') : '-';
+        const newVName = isVendorChanged ? arch.newVendorName : '-';
 
         const row = worksheet.addRow([
-          arch.vendorCode,
-          vendorDisplay,
-          arch.plantName,
-          arch.region,
-          arch.state || '—',
-          arch.city || '—',
-          `${arch.plantCapacity} ${arch.capacityUnit}`,
-          'Pre-Edit Snapshot',
-          'Renewed (Historical Pre-Edit)',
-          arch.oldPoNumber || '—',
-          arch.newPoNumber || '—',
-          arch.oldRate,
-          arch.newRate,
-          ratePct,
-          formatDateOnly(arch.oldContractStart),
-          formatDateOnly(arch.oldContractEnd),
-          `${arch.renewedBy || 'Admin'} (${arch.renewedByRole || 'Admin'})`
+          arch.vendorCode,                                       // 1. Vendor Code
+          arch.oldVendorName || arch.vendorName || '-',          // 2. Vendor Name
+          arch.cmesEntity || 'CMES',                             // 3. Entity
+          newVCode,                                              // 4. New Vendor Code
+          newVName,                                              // 5. New Vendor Name
+          arch.plantName,                                        // 6. Plant Name
+          `${arch.plantCapacity} ${arch.capacityUnit}`,          // 7. Capacity
+          arch.region,                                           // 8. Region
+          arch.state || '-',                                     // 9. State
+          arch.city || '-',                                      // 10. City
+          arch.newRate || arch.oldRate || arch.rate || 0,        // 11. Rate (₹)
+          arch.newPoNumber || arch.oldPoNumber || arch.poNumber || '-', // 12. PO No
+          formatDateOnly(arch.oldContractStart),                 // 13. Starting Date
+          formatDateOnly(arch.oldContractEnd),                   // 14. Ending Date
+          arch.renewalStatus || 'Renewed (Historical)',          // 15. Status
+          ratePct,                                               // 16. Rate Escalation (%)
+          `${arch.renewedBy || 'Admin'} (${arch.renewedByRole || 'Admin'})` // 17. Logged By & Role
         ]);
         row.height = 22;
       });
@@ -134,26 +134,26 @@ const Renewals = () => {
       // 2. Add Active & Pending Vendor Contracts
       vendorsList.forEach(v => {
         const isPending = String(v.status || '').toLowerCase().includes('expir');
-        const renewalStatus = isPending ? 'Expired - Pending Renewal' : 'Current Active';
+        const renewalStatus = isPending ? (v.status === 'Expired' ? 'Expired' : 'Expiring Soon') : 'Active';
 
         const row = worksheet.addRow([
-          v.vendorCode,
-          v.vendorName,
-          v.plantName,
-          v.region,
-          v.state || '—',
-          v.city || '—',
-          `${v.plantCapacity} ${v.capacityUnit}`,
-          'Post-Edit Active',
-          renewalStatus,
-          '—',
-          v.poNumber || '—',
-          '—',
-          v.rate,
-          '0%',
-          formatDateOnly(v.contractStart),
-          formatDateOnly(v.contractEnd),
-          `${v.lastEditedBy || state.currentUser?.name || 'Admin'} (${state.currentUser?.role || 'Admin'})`
+          v.vendorCode,                                          // 1. Vendor Code
+          v.vendorName,                                          // 2. Vendor Name
+          v.cmesEntity || 'CMES',                                // 3. Entity
+          '-',                                                   // 4. New Vendor Code
+          '-',                                                   // 5. New Vendor Name
+          v.plantName,                                           // 6. Plant Name
+          `${v.plantCapacity} ${v.capacityUnit}`,                // 7. Capacity
+          v.region,                                              // 8. Region
+          v.state || '-',                                        // 9. State
+          v.city || '-',                                         // 10. City
+          v.rate || 0,                                           // 11. Rate (₹)
+          v.poNumber || '-',                                     // 12. PO No
+          formatDateOnly(v.contractStart),                       // 13. Starting Date
+          formatDateOnly(v.contractEnd),                         // 14. Ending Date
+          renewalStatus,                                         // 15. Status
+          '0%',                                                  // 16. Rate Escalation (%)
+          `${v.lastEditedBy || state.currentUser?.name || 'Admin'} (${state.currentUser?.role || 'Admin'})` // 17. Logged By & Role
         ]);
         row.height = 22;
       });
@@ -182,29 +182,25 @@ const Renewals = () => {
             cell.font = { name: 'Arial', size: 9, color: { argb: textColor } };
             cell.alignment = { vertical: 'middle' };
 
-            // Center align: vendor code, region, state, record type, renewal status, PO cols, date cols
-            if ([1, 4, 5, 8, 9, 10, 11, 15, 16].includes(colNo)) {
+            // Center align: Vendor Code (1), Entity (3), New Vendor Code (4), Region (8), State (9), Dates (13, 14), Status (15)
+            if ([1, 3, 4, 8, 9, 13, 14, 15].includes(colNo)) {
               cell.alignment = { vertical: 'middle', horizontal: 'center' };
             }
-            // Right align rates & escalation (cols 7, 12, 13, 14)
-            if ([7, 12, 13, 14].includes(colNo)) {
+            // Right align: Capacity (7), Rate (11), PO No (12), Escalation (16)
+            if ([7, 11, 12, 16].includes(colNo)) {
               cell.alignment = { vertical: 'middle', horizontal: 'right' };
             }
           });
 
-          // Specific cell color coding
-          const typeCell = row.getCell(8);
-          const statusCell = row.getCell(9);
+          // Specific cell color coding for Status (Column 15)
+          const statusCell = row.getCell(15);
+          const statusStr = String(statusCell.value || '');
 
-          if (typeCell.value === 'Pre-Edit Snapshot') {
-            typeCell.font = { name: 'Arial', size: 9, color: { argb: 'FF64748B' }, italic: true };
-          }
-
-          if (statusCell.value === 'Renewed (Historical Pre-Edit)') {
+          if (statusStr.includes('Renewed') || statusStr.includes('Replaced')) {
             statusCell.font = { name: 'Arial', size: 9, color: { argb: 'FF475569' }, italic: true };
-          } else if (statusCell.value === 'Expired - Pending Renewal') {
+          } else if (statusStr.includes('Expiring') || statusStr.includes('Pending')) {
             statusCell.font = { name: 'Arial', size: 9, color: { argb: 'FFD97706' }, bold: true };
-          } else if (statusCell.value === 'Current Active') {
+          } else if (statusStr === 'Active') {
             statusCell.font = { name: 'Arial', size: 9, color: { argb: 'FF059669' }, bold: true };
           }
         }
@@ -251,6 +247,8 @@ const Renewals = () => {
     return count > 0 ? (totalPct / count).toFixed(1) : 0;
   }, [archivedList]);
 
+  const deferredSearchTerm = useDeferredValue(searchTerm);
+
   // Merged timeline view (archived snapshots + current pending/active contracts)
   const mergedRecords = useMemo(() => {
     const records = [];
@@ -284,6 +282,20 @@ const Renewals = () => {
     vendorsList.forEach(item => {
       const statusStr = item.status || 'Active';
       const isPending = String(statusStr).toLowerCase().includes('expir');
+
+      let startIso = formatDateToISO(item.contractStart);
+      let endIso = formatDateToISO(item.contractEnd);
+
+      // Auto-heal corrupted end date where contractEnd === contractStart
+      if (startIso && endIso && startIso === endIso) {
+        const sDate = parseFlexibleDate(startIso);
+        if (sDate) {
+          const healDate = new Date(sDate);
+          healDate.setUTCFullYear(healDate.getUTCFullYear() + 2);
+          endIso = formatDateToISO(healDate);
+        }
+      }
+
       records.push({
         id: item.id,
         type: 'current',
@@ -296,21 +308,21 @@ const Renewals = () => {
         oldRate: item.rate,
         newRate: item.rate,
         periodOld: '—',
-        periodNew: `${formatDateOnly(item.contractStart)} - ${formatDateOnly(item.contractEnd)}`,
+        periodNew: `${formatDateOnly(startIso)} - ${formatDateOnly(endIso)}`,
         renewalStatus: statusStr,
         badgeClass: getStatusClass(statusStr),
         renewedBy: item.lastEditedBy || '—',
         renewedByRole: 'Manager',
         timestamp: item.updatedAt || item.createdAt,
         capacity: `${item.plantCapacity || 0} ${item.capacityUnit || 'kWp'}`,
-        rawVendor: item,
+        rawVendor: { ...item, contractStart: startIso, contractEnd: endIso },
         isPending
       });
     });
 
     return records.filter(rec => {
       // Search
-      const q = searchTerm.toLowerCase();
+      const q = deferredSearchTerm.toLowerCase();
       const matchesSearch = !q || 
         (rec.plantName && rec.plantName.toLowerCase().includes(q)) ||
         (rec.vendorName && rec.vendorName.toLowerCase().includes(q)) ||
@@ -329,20 +341,29 @@ const Renewals = () => {
 
       return matchesSearch && matchesStatus && matchesRegion;
     }).sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
-  }, [archivedList, vendorsList, searchTerm, statusFilter, regionFilter]);
+  }, [archivedList, vendorsList, deferredSearchTerm, statusFilter, regionFilter]);
 
   // Open Quick Renew modal
   const handleOpenRenewModal = (vendor) => {
     setSelectedForRenewal(vendor);
-    const today = new Date();
-    const nextTwoYears = new Date();
-    nextTwoYears.setFullYear(today.getFullYear() + 2);
+    
+    const startIso = formatDateToISO(vendor.contractStart);
+    const startDateObj = parseFlexibleDate(startIso) || new Date();
+    
+    let endIso = formatDateToISO(vendor.contractEnd);
+    if (endIso === startIso || !vendor.contractEnd) {
+      const twoYears = new Date(startDateObj);
+      twoYears.setUTCFullYear(twoYears.getUTCFullYear() + 2);
+      endIso = formatDateToISO(twoYears);
+    }
 
     setRenewForm({
-      poNumber: vendor.poNumber ? `${vendor.poNumber}-R` : '4600000999',
+      vendorCode: vendor.vendorCode || '',
+      vendorName: vendor.vendorName || '',
+      poNumber: vendor.poNumber ? (vendor.poNumber.endsWith('-R') ? vendor.poNumber : `${vendor.poNumber}-R`) : '4600000999',
       rate: vendor.rate ? Math.round(Number(vendor.rate) * 1.05) : 30, // 5% escalation default
-      contractStart: today.toISOString().split('T')[0],
-      contractEnd: nextTwoYears.toISOString().split('T')[0],
+      contractStart: startIso,
+      contractEnd: endIso,
     });
   };
 
@@ -358,7 +379,10 @@ const Renewals = () => {
       id: `renew-${uuidv4()}`,
       vendorId: vendor.id,
       vendorCode: vendor.vendorCode,
-      vendorName: vendor.vendorName,
+      oldVendorName: vendor.vendorName,
+      newVendorCode: renewForm.vendorCode,
+      newVendorName: renewForm.vendorName,
+      vendorName: renewForm.vendorName || vendor.vendorName,
       plantName: vendor.plantName,
       region: vendor.region,
       state: vendor.state,
@@ -385,6 +409,8 @@ const Renewals = () => {
     // 3. Update active vendor record to Active
     const updatedVendor = {
       ...vendor,
+      vendorCode: renewForm.vendorCode || vendor.vendorCode,
+      vendorName: renewForm.vendorName || vendor.vendorName,
       poNumber: renewForm.poNumber,
       rate: Number(renewForm.rate),
       contractStart: renewForm.contractStart,
@@ -839,10 +865,34 @@ const Renewals = () => {
               {/* Section: New Contract Terms */}
               <div>
                 <h3 style={{ fontSize: '1rem', marginBottom: '1rem', color: 'var(--accent-color)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <PlusCircle size={16} /> New Contract Terms
+                  <PlusCircle size={16} /> New Contract & Vendor Terms
                 </h3>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                  <div style={{ gridColumn: '1 / -1' }}>
+                  <div>
+                    <label className="renew-section-label">Vendor Code *</label>
+                    <input
+                      type="text"
+                      required
+                      className="premium-input renew-modal-input"
+                      style={{ width: '100%' }}
+                      placeholder="e.g. 104078"
+                      value={renewForm.vendorCode}
+                      onChange={(e) => setRenewForm({ ...renewForm, vendorCode: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="renew-section-label">Vendor Name *</label>
+                    <input
+                      type="text"
+                      required
+                      className="premium-input renew-modal-input"
+                      style={{ width: '100%' }}
+                      placeholder="e.g. Swapsol Energy"
+                      value={renewForm.vendorName}
+                      onChange={(e) => setRenewForm({ ...renewForm, vendorName: e.target.value })}
+                    />
+                  </div>
+                  <div>
                     <label className="renew-section-label">New PO Number *</label>
                     <input
                       type="text"
@@ -854,7 +904,7 @@ const Renewals = () => {
                       onChange={(e) => setRenewForm({ ...renewForm, poNumber: e.target.value })}
                     />
                   </div>
-                  <div style={{ gridColumn: '1 / -1' }}>
+                  <div>
                     <label className="renew-section-label">
                       New PPA Rate (₹/unit) *
                       {renewForm.rate && selectedForRenewal.rate && (

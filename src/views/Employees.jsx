@@ -426,14 +426,6 @@ const Employees = () => {
                       >
                         <Edit size={13} /> Edit
                       </button>
-                      <button 
-                        onClick={() => handleRegeneratePassword(u)} 
-                        className="btn-ghost" 
-                        style={{ padding: '0.25rem 0.65rem', fontSize: '0.8rem', whiteSpace: 'nowrap', border: '1px solid var(--border-color)', borderRadius: '8px' }}
-                        title="Reset user password"
-                      >
-                        Reset Password
-                      </button>
                     </div>
                   </td>
                 </tr>
