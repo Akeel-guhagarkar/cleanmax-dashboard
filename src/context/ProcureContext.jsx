@@ -18,14 +18,20 @@ const getInitialState = () => {
   let localDeleted = null;
 
   try {
+    const version = localStorage.getItem('cleanmax_cache_v');
+    if (version !== '20260730_v3') {
+      localStorage.removeItem('cleanmax_deleted_records');
+      localStorage.setItem('cleanmax_cache_v', '20260730_v3');
+    } else {
+      const dStr = localStorage.getItem('cleanmax_deleted_records');
+      if (dStr) localDeleted = JSON.parse(dStr);
+    }
     const vStr = localStorage.getItem('cleanmax_vendors');
     if (vStr) localVendors = JSON.parse(vStr);
     const pStr = localStorage.getItem('cleanmax_projects');
     if (pStr) localProjects = JSON.parse(pStr);
     const uStr = localStorage.getItem('cleanmax_users');
     if (uStr) localUsers = JSON.parse(uStr);
-    const dStr = localStorage.getItem('cleanmax_deleted_records');
-    if (dStr) localDeleted = JSON.parse(dStr);
   } catch (e) {}
 
   return {
