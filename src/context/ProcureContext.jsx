@@ -11,10 +11,27 @@ const ProcureContext = createContext();
 const getInitialState = () => {
   const savedCurrentUser = sessionStorage.getItem('procure360_current_user');
   const savedDarkMode = localStorage.getItem('procure360_darkmode');
+
+  let localVendors = null;
+  let localProjects = null;
+  let localUsers = null;
+  let localDeleted = null;
+
+  try {
+    const vStr = localStorage.getItem('cleanmax_vendors');
+    if (vStr) localVendors = JSON.parse(vStr);
+    const pStr = localStorage.getItem('cleanmax_projects');
+    if (pStr) localProjects = JSON.parse(pStr);
+    const uStr = localStorage.getItem('cleanmax_users');
+    if (uStr) localUsers = JSON.parse(uStr);
+    const dStr = localStorage.getItem('cleanmax_deleted_records');
+    if (dStr) localDeleted = JSON.parse(dStr);
+  } catch (e) {}
+
   return {
-    vendors: [],
-    users: [],
-    projects: [],
+    vendors: (localVendors && localVendors.length > 0) ? localVendors : SEED_VENDORS,
+    users: (localUsers && localUsers.length > 0) ? localUsers : SEED_USERS,
+    projects: (localProjects && localProjects.length > 0) ? localProjects : SEED_PROJECTS,
     archivedContracts: SEED_ARCHIVED_CONTRACTS,
     currentUser: savedCurrentUser ? JSON.parse(savedCurrentUser) : null,
     isDarkMode: savedDarkMode === 'true',
@@ -22,7 +39,7 @@ const getInitialState = () => {
     notifications: [],
     dismissedAlerts: [],
     uploadHistory: [],
-    deletedRecords: [],
+    deletedRecords: localDeleted || [],
     isMaintenanceMode: localStorage.getItem('cleanmax_maintenance') === 'true',
   };
 };
@@ -82,9 +99,22 @@ export const getMatchingProjectsForVendors = (vendorsList, projectsList) => {
 const vendorReducer = (state, action) => {
   switch (action.type) {
     case 'SYNC_COLLECTION': {
+      const { key, data } = action.payload;
+      if (Array.isArray(data)) {
+        try {
+          if (key === 'vendors' && data.length > 0) localStorage.setItem('cleanmax_vendors', JSON.stringify(data));
+          if (key === 'projects' && data.length > 0) localStorage.setItem('cleanmax_projects', JSON.stringify(data));
+          if (key === 'users' && data.length > 0) localStorage.setItem('cleanmax_users', JSON.stringify(data));
+          if (key === 'deletedRecords') localStorage.setItem('cleanmax_deleted_records', JSON.stringify(data));
+        } catch (e) {}
+      }
+
+      if (Array.isArray(data) && data.length === 0 && state[key] && state[key].length > 0 && key !== 'deletedRecords') {
+        return state;
+      }
       return {
         ...state,
-        [action.payload.key]: action.payload.data,
+        [key]: data,
       };
     }
     case 'LOGIN':
@@ -291,14 +321,20 @@ const vendorReducer = (state, action) => {
     }
     case 'PERMANENT_DELETE_MANY': {
       const idsToDelete = new Set(action.payload || []);
+      const newDeleted = state.deletedRecords.filter(r => !idsToDelete.has(r._recycleBinId) && !idsToDelete.has(r.id));
+      try { localStorage.setItem('cleanmax_deleted_records', JSON.stringify(newDeleted)); } catch (e) {}
       return {
         ...state,
-        deletedRecords: state.deletedRecords.filter(r => !idsToDelete.has(r._recycleBinId) && !idsToDelete.has(r.id))
+        deletedRecords: newDeleted
       };
     }
-    case 'PERMANENT_DELETE':
-      return { ...state, deletedRecords: state.deletedRecords.filter(r => r._recycleBinId !== action.payload) };
+    case 'PERMANENT_DELETE': {
+      const newDeleted = state.deletedRecords.filter(r => r._recycleBinId !== action.payload && r.id !== action.payload);
+      try { localStorage.setItem('cleanmax_deleted_records', JSON.stringify(newDeleted)); } catch (e) {}
+      return { ...state, deletedRecords: newDeleted };
+    }
     case 'CLEAR_RECYCLE_BIN':
+      try { localStorage.setItem('cleanmax_deleted_records', JSON.stringify([])); } catch (e) {}
       return { ...state, deletedRecords: [] };
       
     case 'ADD_USER':
@@ -706,7 +742,12 @@ export const ProcureProvider = ({ children }) => {
 
     if (batches.length > 0) {
       for (const b of batches) {
-        await b.commit();
+        try {
+          await b.commit();
+          await new Promise(r => setTimeout(r, 100));
+        } catch (err) {
+          console.warn("Firestore batch commit notice:", err?.message || err);
+        }
       }
     }
   }, []);
