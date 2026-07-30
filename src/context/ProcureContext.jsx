@@ -493,7 +493,7 @@ const vendorReducer = (state, action) => {
             const vCode = (v.vendorCode || '').toLowerCase().trim();
             const vName = (v.vendorName || '').toLowerCase().trim();
             const vPlant = (v.plantName || '').toLowerCase().trim();
-            if ((rowPlant && vPlant === rowPlant) || (rowCode && vCode === rowCode) || (rowName && vName === rowName)) {
+            if ((rowPlant && vPlant === rowPlant) && ((rowCode && vCode === rowCode) || (rowName && vName === rowName))) {
               vendorIdsToDelete.add(v.id);
             }
           });
@@ -501,7 +501,7 @@ const vendorReducer = (state, action) => {
           state.projects.forEach(p => {
             const pName = (p.projectName || '').toLowerCase().trim();
             const client = (p.client || '').toLowerCase().trim();
-            if ((rowPlant && pName === rowPlant) || (rowName && client === rowName) || (rowCode && client === rowCode)) {
+            if ((rowPlant && pName === rowPlant) && ((rowName && client === rowName) || (rowCode && client === rowCode))) {
               projectIdsToDelete.add(p.id);
             }
           });
@@ -1133,7 +1133,7 @@ export const ProcureProvider = ({ children }) => {
                   const vCode = (v.vendorCode || '').toLowerCase().trim();
                   const vName = (v.vendorName || '').toLowerCase().trim();
                   const vPlant = (v.plantName || '').toLowerCase().trim();
-                  if ((rowPlant && vPlant === rowPlant) || (rowCode && vCode === rowCode) || (rowName && vName === rowName)) {
+                  if ((rowPlant && vPlant === rowPlant) && ((rowCode && vCode === rowCode) || (rowName && vName === rowName))) {
                     vendorIdsToDelete.add(v.id);
                   }
                 });
@@ -1141,7 +1141,7 @@ export const ProcureProvider = ({ children }) => {
                 (state.projects || []).forEach(p => {
                   const pName = (p.projectName || '').toLowerCase().trim();
                   const client = (p.client || '').toLowerCase().trim();
-                  if ((rowPlant && pName === rowPlant) || (rowName && client === rowName) || (rowCode && client === rowCode)) {
+                  if ((rowPlant && pName === rowPlant) && ((rowName && client === rowName) || (rowCode && client === rowCode))) {
                     projectIdsToDelete.add(p.id);
                   }
                 });
@@ -1177,7 +1177,7 @@ export const ProcureProvider = ({ children }) => {
                   const vCode = (v.vendorCode || '').toLowerCase().trim();
                   const vName = (v.vendorName || '').toLowerCase().trim();
                   const vPlant = (v.plantName || '').toLowerCase().trim();
-                  if ((rowPlant && vPlant === rowPlant) || (rowCode && vCode === rowCode) || (rowName && vName === rowName)) {
+                  if ((rowPlant && vPlant === rowPlant) && ((rowCode && vCode === rowCode) || (rowName && vName === rowName))) {
                     vendorIdsToDelete.add(v.id);
                   }
                 });
@@ -1185,7 +1185,7 @@ export const ProcureProvider = ({ children }) => {
                 (state.projects || []).forEach(p => {
                   const pName = (p.projectName || '').toLowerCase().trim();
                   const client = (p.client || '').toLowerCase().trim();
-                  if ((rowPlant && pName === rowPlant) || (rowName && client === rowName) || (rowCode && client === rowCode)) {
+                  if ((rowPlant && pName === rowPlant) && ((rowName && client === rowName) || (rowCode && client === rowCode))) {
                     projectIdsToDelete.add(p.id);
                   }
                 });

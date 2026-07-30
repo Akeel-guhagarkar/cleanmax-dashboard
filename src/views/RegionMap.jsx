@@ -104,69 +104,26 @@ const PopupController = ({ focusedVendor, clusterRef, markerRefsMap }) => {
   return null;
 };
 
-const getStateAbbr = (stateName) => {
-  if (!stateName) return '';
-  const s = String(stateName).trim();
-  if (/maharashtra/i.test(s)) return 'MH';
-  if (/rajasthan/i.test(s)) return 'RJ';
-  if (/karnataka/i.test(s)) return 'KA';
-  if (/gujarat/i.test(s)) return 'GJ';
-  if (/tamil\s*nadu/i.test(s)) return 'TN';
-  if (/uttar\s*pradesh/i.test(s)) return 'UP';
-  if (/haryana/i.test(s)) return 'HR';
-  if (/punjab/i.test(s)) return 'PB';
-  if (/telangana/i.test(s)) return 'TS';
-  if (/andhra/i.test(s)) return 'AP';
-  if (/kerala/i.test(s)) return 'KL';
-  if (/west\s*bengal/i.test(s)) return 'WB';
-  if (/madhya\s*pradesh/i.test(s)) return 'MP';
-  return s.substring(0, 2).toUpperCase();
-};
-
 const createClusterCustomIcon = function (cluster) {
-  const childCount = cluster.getChildCount();
-  
-  let stateAbbr = '';
-  let regionColor = '#3b82f6';
-  try {
-    const markers = cluster.getAllChildMarkers();
-    if (markers && markers.length > 0) {
-      const vData = markers[0]?.options?.vendor;
-      if (vData) {
-        if (vData.state) stateAbbr = getStateAbbr(vData.state);
-        if (vData.region && REGION_COLORS[vData.region]) regionColor = REGION_COLORS[vData.region];
-      }
-    }
-  } catch (e) {}
-
-  const labelText = stateAbbr ? `${stateAbbr} • ${childCount}` : `${childCount}`;
-  const widthPx = stateAbbr ? 68 : 36;
-
   return L.divIcon({
-    html: `<div style="
+    html: `<span style="
              display: flex;
-             align-items: center;
              justify-content: center;
-             gap: 5px;
-             padding: 4px 10px;
-             background: rgba(15, 23, 42, 0.92);
-             color: #ffffff;
-             border: 1.5px solid rgba(255, 255, 255, 0.9);
-             border-radius: 20px;
-             box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45), 0 0 10px ${regionColor}aa;
-             font-weight: 700;
-             font-size: 11px;
-             white-space: nowrap;
-             backdrop-filter: blur(8px);
-             letter-spacing: 0.03em;
+             align-items: center;
+             width: 32px;
+             height: 32px;
+             background: rgba(255, 255, 255, 0.95);
+             color: #0f172a;
+             border: 2px solid #ffffff;
+             border-radius: 50%;
+             box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4), 0 0 15px rgba(255, 255, 255, 0.6);
+             font-weight: 800;
+             font-size: 13px;
              transition: all 0.2s ease;
-           ">
-             <span style="width: 6px; height: 6px; border-radius: 50%; background: ${regionColor}; box-shadow: 0 0 6px ${regionColor};"></span>
-             ${labelText}
-           </div>`,
-    className: 'custom-marker-cluster-pill',
-    iconSize: L.point(widthPx, 28, true),
-    iconAnchor: L.point(Math.floor(widthPx / 2), 14),
+           ">${cluster.getChildCount()}</span>`,
+    className: 'custom-marker-cluster-circle',
+    iconSize: L.point(32, 32, true),
+    iconAnchor: L.point(16, 16),
   });
 };
 
@@ -419,27 +376,34 @@ const RegionMap = () => {
     ];
 
     return state.vendors.map((v, i) => {
-      // 1. If explicit lat/lng provided in vendor object
-      if (v.lat && v.lng) {
-        return { ...v, lat: Number(v.lat), lng: Number(v.lng) };
-      }
-      
-      // 2. Geocode from plant name, city, or state
-      const searchStr = `${v.plantName || ''} ${v.city || ''} ${v.state || ''}`.toLowerCase();
-      const matched = knownLocations.find(loc => loc.keys.some(k => searchStr.includes(k)));
+      const realRegion = normalizeRegion(v.region, v.state, v.city);
+      let lat = v.lat ? Number(v.lat) : null;
+      let lng = v.lng ? Number(v.lng) : null;
 
-      if (matched) {
-        // Micro-offset for multiple sites in the same city so pins don't overlap exactly
-        const offsetLat = ((i % 3) - 1) * 0.02;
-        const offsetLng = ((i % 5) - 2) * 0.02;
-        return { ...v, lat: matched.lat + offsetLat, lng: matched.lng + offsetLng };
+      if (!lat || !lng) {
+        const searchStr = `${v.plantName || ''} ${v.city || ''} ${v.state || ''}`.toLowerCase();
+        const matched = knownLocations.find(loc => loc.keys.some(k => searchStr.includes(k)));
+
+        if (matched) {
+          const offsetLat = ((i % 3) - 1) * 0.02;
+          const offsetLng = ((i % 5) - 2) * 0.02;
+          lat = matched.lat + offsetLat;
+          lng = matched.lng + offsetLng;
+        } else {
+          const center = REGION_CENTERS[realRegion] || [79, 23.5];
+          const offsetLng = (i % 5) * 0.6 - 1.2;
+          const offsetLat = (i % 3) * 0.6 - 0.6;
+          lat = center[1] + offsetLat;
+          lng = center[0] + offsetLng;
+        }
       }
 
-      // 3. Fallback to region center
-      const center = REGION_CENTERS[v.region] || [79, 23.5];
-      const offsetLng = (i % 5) * 0.6 - 1.2;
-      const offsetLat = (i % 3) * 0.6 - 0.6;
-      return { ...v, lat: center[1] + offsetLat, lng: center[0] + offsetLng };
+      return {
+        ...v,
+        region: realRegion,
+        lat,
+        lng
+      };
     }).filter(v => statusFilter === 'All' || v.status === statusFilter);
   }, [state.vendors, statusFilter]);
 
